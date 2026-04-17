@@ -15,8 +15,8 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <p class="topbar-label">ROOM</p>
-      <span class="logo">같이 고르고 같이 시작</span>
+      <p class="topbar-label">MATCH LOBBY</p>
+      <span class="logo">시작 전 마지막 준비</span>
     </div>
 
     <div class="room-tools">
@@ -34,15 +34,15 @@
 
   <main class="layout">
     <section class="stage">
-      <p class="section-kicker">오늘 뭐 할까?</p>
-      <h1 class="stage-title">하나 고르고 준비 누르기</h1>
+      <p class="section-kicker">GAME SELECT</p>
+      <h1 class="stage-title">이번 판은 어떤 게임으로 갈까요?</h1>
 
       <div class="game-list">
         <button class="game-card" id="card-dodge-square" data-game="dodge-square" type="button">
           <span class="game-badge">A</span>
           <span class="game-text">
             <strong>네모 피하기</strong>
-            <small>끝까지 버텨라</small>
+            <small>끝까지 버티는 플레이어가 승리합니다</small>
           </span>
           <span class="vote-badge" id="badge-dodge-square">0</span>
         </button>
@@ -51,35 +51,35 @@
           <span class="game-badge">B</span>
           <span class="game-text">
             <strong>박자 맞추기</strong>
-            <small>정확하게 눌러라</small>
+            <small>리듬과 정확도로 점수를 겨룹니다</small>
           </span>
           <span class="vote-badge" id="badge-rhythm-tap">0</span>
         </button>
       </div>
 
       <div class="start-box">
-        <div class="start-tally" id="start-tally">0명 준비</div>
-        <button class="btn btn-start" id="start-btn">준비! (0/0)</button>
+        <div class="start-tally" id="start-tally">0명 준비 완료</div>
+        <button class="btn btn-start" id="start-btn">준비 완료 (0/0)</button>
       </div>
     </section>
 
     <aside class="sidebar">
       <section class="side-panel">
-        <p class="section-kicker">멤버</p>
-        <h2 class="panel-title">지금 여기</h2>
+        <p class="section-kicker">PLAYERS</p>
+        <h2 class="panel-title">현재 참가자</h2>
         <div class="player-list" id="player-list"></div>
       </section>
 
       <section class="side-panel chat-panel">
-        <p class="section-kicker">채팅</p>
-        <h2 class="panel-title">짧게 한마디</h2>
+        <p class="section-kicker">LIVE CHAT</p>
+        <h2 class="panel-title">빠른 대화</h2>
         <div class="chat-messages" id="chat-messages"></div>
         <div class="chat-input-row">
           <input
             type="text"
             class="chat-input"
             id="chat-input"
-            placeholder="하고 싶은 말"
+            placeholder="메시지를 입력하세요"
             maxlength="100"
             autocomplete="off"
             spellcheck="false"
@@ -92,7 +92,7 @@
 
   <div class="countdown-overlay" id="countdown-overlay">
     <div class="overlay-card">
-      <div class="countdown-label">시작!</div>
+      <div class="countdown-label">매치 시작</div>
       <div class="countdown-number" id="countdown-number">3</div>
       <div class="countdown-game-name" id="countdown-game-name"></div>
     </div>
@@ -100,8 +100,8 @@
 
   <div class="disconnect-overlay" id="disconnect-overlay">
     <div class="overlay-card">
-      <div class="disconnect-title">연결 끊김</div>
-      <div class="disconnect-msg" id="disconnect-msg">잠깐만, 다시 붙는 중...</div>
+      <div class="disconnect-title">연결이 끊어졌습니다</div>
+      <div class="disconnect-msg" id="disconnect-msg">잠시 후 다시 연결합니다.</div>
       <button class="btn btn-reconnect" id="reconnect-btn">다시 연결</button>
     </div>
   </div>

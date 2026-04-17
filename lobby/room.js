@@ -36,7 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
   playerName = params.get('name') || sessionStorage.getItem('playerName') || '플레이어';
 
   if (!roomCode) {
-    showDisconnectOverlay('방 코드가 없어요. 다시 들어와 주세요.');
+    showDisconnectOverlay('방 코드가 없습니다. 로비에서 다시 입장해 주세요.');
     return;
   }
 
@@ -111,10 +111,10 @@ function onClose() {
 
   if (reconnectAttempts < MAX_RECONNECT) {
     reconnectAttempts++;
-    setConnStatus('connecting', `다시 연결... (${reconnectAttempts}/${MAX_RECONNECT})`);
+    setConnStatus('connecting', `재연결 중... (${reconnectAttempts}/${MAX_RECONNECT})`);
     reconnectTimer = setTimeout(() => connect(roomCode, playerName), RECONNECT_DELAY_MS);
   } else {
-    showDisconnectOverlay('연결이 끊겼어요. 다시 눌러 주세요.');
+    showDisconnectOverlay('연결이 끊어졌습니다. 다시 시도해 주세요.');
   }
 }
 
@@ -124,7 +124,7 @@ function onConnectFailed() {
     reconnectAttempts++;
     reconnectTimer = setTimeout(() => connect(roomCode, playerName), RECONNECT_DELAY_MS);
   } else {
-    showDisconnectOverlay('서버에 연결할 수 없어요.');
+    showDisconnectOverlay('서버에 연결할 수 없습니다.');
   }
 }
 
@@ -159,11 +159,11 @@ function handleMessage(msg) {
       break;
 
     case 'player_joined':
-      appendSystemChat(`${msg.name} 입장!`);
+      appendSystemChat(`${msg.name} 님이 합류했습니다.`);
       break;
 
     case 'player_left':
-      appendSystemChat(`${msg.name} 퇴장!`);
+      appendSystemChat(`${msg.name} 님이 방을 나갔습니다.`);
       break;
 
     case 'players_update':
@@ -245,13 +245,13 @@ function renderGameVotes(votes) {
 
 function renderStartTally() {
   const tally = document.getElementById('start-tally');
-  tally.textContent = `${currentStartVotes.count}명 준비`;
+  tally.textContent = `${currentStartVotes.count}명 준비 완료`;
 
   const btn = document.getElementById('start-btn');
   btn.classList.toggle('voted-start', myStartVote);
   btn.textContent = myStartVote
     ? `준비 취소 (${currentStartVotes.count}/${currentStartVotes.total})`
-    : `준비! (${currentStartVotes.count}/${currentStartVotes.total})`;
+    : `준비 완료 (${currentStartVotes.count}/${currentStartVotes.total})`;
 }
 
 function voteGame(gameId) {
@@ -285,7 +285,7 @@ function copyRoomCode() {
   const btn = document.getElementById('copy-btn');
 
   function showCopied() {
-    btn.textContent = '복사됨';
+    btn.textContent = '복사 완료';
     btn.classList.add('copied');
     setTimeout(() => {
       btn.textContent = '복사';
