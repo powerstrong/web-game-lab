@@ -26,13 +26,7 @@ export default {
 
     // POST /api/rooms — create a new room
     if (method === 'POST' && url.pathname === '/api/rooms') {
-      // Auto-increment counter starting at 1000
-      let counter = parseInt(await env.KV.get('room_counter') || '999', 10);
-      counter += 1;
-      await env.KV.put('room_counter', String(counter));
-
-      // Pad to at least 4 digits
-      const code = String(counter).padStart(4, '0');
+      const code = String(Math.floor(Math.random() * 9000) + 1000);
 
       // Instantiate the Durable Object for this room
       const id = env.GAME_ROOM.idFromName(code);
