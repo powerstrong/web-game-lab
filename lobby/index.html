@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>텐텐오락실</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0d;
+      --surface: #1a1a2e;
+      --surface2: #16213e;
+      --cyan: #00d4ff;
+      --yellow: #ffd700;
+      --red: #ff6b6b;
+      --text: #e0e0e0;
+      --muted: #666;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Press Start 2P', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    /* Scanline overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.15) 2px,
+        rgba(0,0,0,0.15) 4px
+      );
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    .title-block {
+      text-align: center;
+    }
+
+    .title {
+      font-size: clamp(1.4rem, 6vw, 2.2rem);
+      color: var(--cyan);
+      text-shadow:
+        0 0 10px var(--cyan),
+        0 0 30px var(--cyan),
+        0 0 60px rgba(0, 212, 255, 0.4);
+      letter-spacing: 0.05em;
+      animation: flicker 4s infinite;
+    }
+
+    .subtitle {
+      margin-top: 0.75rem;
+      font-size: 0.5rem;
+      color: var(--yellow);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    @keyframes flicker {
+      0%, 95%, 100% { opacity: 1; }
+      96% { opacity: 0.8; }
+      97% { opacity: 1; }
+      98% { opacity: 0.6; }
+      99% { opacity: 1; }
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid rgba(0, 212, 255, 0.2);
+      border-radius: 8px;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .card-title {
+      font-size: 0.6rem;
+      color: var(--yellow);
+      letter-spacing: 0.1em;
+      border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+      padding-bottom: 0.75rem;
+    }
+
+    label {
+      font-size: 0.5rem;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      display: block;
+      margin-bottom: 0.4rem;
+    }
+
+    input[type="text"],
+    input[type="number"] {
+      width: 100%;
+      background: #0d0d1a;
+      border: 1px solid rgba(0, 212, 255, 0.3);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: 'Press Start 2P', monospace;
+      font-size: 0.65rem;
+      padding: 0.75rem 1rem;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    input[type="text"]:focus,
+    input[type="number"]:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
+    }
+
+    /* Remove number input arrows */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+    input[type="number"] { -moz-appearance: textfield; }
+
+    .btn {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 0.6rem;
+      border: none;
+      border-radius: 4px;
+      padding: 0.85rem 1.5rem;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      transition: transform 0.1s, box-shadow 0.2s;
+      width: 100%;
+    }
+
+    .btn:active { transform: scale(0.97); }
+
+    .btn-primary {
+      background: var(--cyan);
+      color: #000;
+      box-shadow: 0 0 16px rgba(0, 212, 255, 0.5);
+    }
+
+    .btn-primary:hover {
+      box-shadow: 0 0 24px rgba(0, 212, 255, 0.8);
+    }
+
+    .btn-secondary {
+      background: var(--yellow);
+      color: #000;
+      box-shadow: 0 0 16px rgba(255, 215, 0, 0.4);
+    }
+
+    .btn-secondary:hover {
+      box-shadow: 0 0 24px rgba(255, 215, 0, 0.7);
+    }
+
+    .join-row {
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    .join-row input { flex: 1; }
+    .join-row .btn { width: auto; white-space: nowrap; padding: 0.85rem 1rem; font-size: 0.55rem; }
+
+    .error-msg {
+      font-size: 0.45rem;
+      color: var(--red);
+      min-height: 1em;
+      letter-spacing: 0.05em;
+    }
+
+    .footer {
+      text-align: center;
+      font-size: 0.35rem;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="title-block">
+      <div class="title">텐텐오락실</div>
+      <div class="subtitle">Multiplayer Mini-Game Arcade</div>
+    </div>
+
+    <!-- Name input (shared) -->
+    <div class="card">
+      <div class="card-title">플레이어 이름</div>
+      <label for="player-name">닉네임을 입력하세요</label>
+      <input
+        type="text"
+        id="player-name"
+        placeholder="ex) 플레이어1"
+        maxlength="16"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <div class="error-msg" id="name-error"></div>
+    </div>
+
+    <!-- Create room -->
+    <div class="card">
+      <div class="card-title">방 만들기</div>
+      <button class="btn btn-primary" id="create-btn">방 만들기</button>
+      <div class="error-msg" id="create-error"></div>
+    </div>
+
+    <!-- Join room -->
+    <div class="card">
+      <div class="card-title">방 참가</div>
+      <label for="room-code">방 코드 (4자리 숫자)</label>
+      <div class="join-row">
+        <input
+          type="number"
+          id="room-code"
+          placeholder="1234"
+          min="1000"
+          max="9999"
+        />
+        <button class="btn btn-secondary" id="join-btn">입장</button>
+      </div>
+      <div class="error-msg" id="join-error"></div>
+    </div>
+
+    <div class="footer">INSERT COIN TO CONTINUE &nbsp;·&nbsp; v0.1</div>
+  </div>
+
+  <script src="config.js"></script>
+  <script>
+    const nameInput = document.getElementById('player-name');
+    const codeInput = document.getElementById('room-code');
+    const createBtn = document.getElementById('create-btn');
+    const joinBtn = document.getElementById('join-btn');
+    const nameError = document.getElementById('name-error');
+    const createError = document.getElementById('create-error');
+    const joinError = document.getElementById('join-error');
+
+    // Restore saved name
+    const savedName = sessionStorage.getItem('playerName');
+    if (savedName) nameInput.value = savedName;
+
+    nameInput.addEventListener('input', () => {
+      sessionStorage.setItem('playerName', nameInput.value.trim());
+      nameError.textContent = '';
+    });
+
+    function getValidName() {
+      const name = nameInput.value.trim();
+      if (!name) {
+        nameError.textContent = '이름을 입력해 주세요!';
+        nameInput.focus();
+        return null;
+      }
+      return name;
+    }
+
+    createBtn.addEventListener('click', async () => {
+      const name = getValidName();
+      if (!name) return;
+
+      createBtn.disabled = true;
+      createBtn.textContent = '생성 중...';
+      createError.textContent = '';
+
+      try {
+        const res = await fetch(`${window.WORKER_URL}/api/rooms`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hostName: name }),
+        });
+
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `서버 오류 (${res.status})`);
+        }
+
+        const data = await res.json();
+        const code = data.code || data.roomCode;
+        sessionStorage.setItem('playerName', name);
+        window.location.href = `room.html?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`;
+      } catch (err) {
+        createError.textContent = err.message;
+        createBtn.disabled = false;
+        createBtn.textContent = '방 만들기';
+      }
+    });
+
+    joinBtn.addEventListener('click', () => {
+      const name = getValidName();
+      if (!name) return;
+
+      joinError.textContent = '';
+      const raw = codeInput.value.trim();
+      if (!raw || !/^\d{4}$/.test(raw)) {
+        joinError.textContent = '4자리 숫자를 입력해 주세요!';
+        codeInput.focus();
+        return;
+      }
+
+      sessionStorage.setItem('playerName', name);
+      window.location.href = `room.html?code=${encodeURIComponent(raw)}&name=${encodeURIComponent(name)}`;
+    });
+
+    // Allow Enter to submit in room-code input
+    codeInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') joinBtn.click();
+    });
+  </script>
+</body>
+</html>

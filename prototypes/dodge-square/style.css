@@ -1,0 +1,110 @@
+:root {
+  --bg: #0f1720;
+  --panel: rgba(16, 24, 34, 0.86);
+  --panel-2: #111c28;
+  --ink: #ebf4ff;
+  --muted: #99acc3;
+  --accent: #7dc6ff;
+  --danger: #ff6f61;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Arial, sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top, rgba(125, 198, 255, 0.15), transparent 30%),
+    radial-gradient(circle at bottom, rgba(255, 111, 97, 0.14), transparent 28%),
+    linear-gradient(180deg, #0a1219 0%, var(--bg) 100%);
+}
+
+.game-shell {
+  width: min(900px, calc(100% - 24px));
+  margin: 0 auto;
+  padding: 24px 0 40px;
+}
+
+.panel {
+  margin-bottom: 16px;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background: var(--panel);
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h1,
+.summary {
+  margin: 0;
+}
+
+.summary {
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.hud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font: inherit;
+  color: #07111a;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.arena {
+  position: relative;
+  overflow: hidden;
+  min-height: 420px;
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(125, 198, 255, 0.08), transparent),
+    var(--panel-2);
+}
+
+.player,
+.enemy {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.player {
+  background: var(--accent);
+  box-shadow: 0 0 18px rgba(125, 198, 255, 0.5);
+}
+
+.enemy {
+  background: var(--danger);
+  box-shadow: 0 0 18px rgba(255, 111, 97, 0.44);
+}
+
+@media (max-width: 640px) {
+  .arena {
+    min-height: 360px;
+  }
+}

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>텐텐오락실 — 대기실</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="room.css" />
+</head>
+<body>
+
+  <!-- ── Top bar ── -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo">텐텐오락실</span>
+      <div class="room-code-block">
+        <span class="room-code-label">방 코드</span>
+        <span class="room-code-value" id="room-code-display">----</span>
+        <button class="copy-btn" id="copy-btn" title="복사">복사</button>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="conn-indicator connecting" id="conn-indicator"></div>
+      <span class="conn-label" id="conn-label">연결 중...</span>
+    </div>
+  </header>
+
+  <!-- ── Main 3-column layout ── -->
+  <main class="main">
+
+    <!-- Left: Players -->
+    <section class="panel" id="players-panel">
+      <div class="panel-header">플레이어</div>
+      <div class="panel-body" id="player-list">
+        <!-- filled by JS -->
+      </div>
+    </section>
+
+    <!-- Center: Game picker + start vote -->
+    <section class="panel" id="game-panel">
+      <div class="panel-header">게임 선택</div>
+      <div class="panel-body">
+        <div class="game-cards">
+
+          <div class="game-card" id="card-dodge-square" data-game="dodge-square">
+            <div class="game-icon">🕹️</div>
+            <div class="game-info">
+              <div class="game-title">Dodge Square</div>
+              <div class="game-desc">장애물을 피하며 살아남아라!</div>
+            </div>
+            <span class="vote-badge" id="badge-dodge-square">0</span>
+          </div>
+
+          <div class="game-card" id="card-rhythm-tap" data-game="rhythm-tap">
+            <div class="game-icon">🎵</div>
+            <div class="game-info">
+              <div class="game-title">Rhythm Tap</div>
+              <div class="game-desc">리듬에 맞춰 탭하라!</div>
+            </div>
+            <span class="vote-badge" id="badge-rhythm-tap">0</span>
+          </div>
+
+        </div>
+
+        <div class="start-section">
+          <div class="start-tally" id="start-tally">0 / 0 시작 동의</div>
+          <button class="btn btn-start" id="start-btn">게임 시작!</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right: Chat -->
+    <section class="panel" id="chat-panel" style="display:flex; flex-direction:column;">
+      <div class="panel-header">채팅</div>
+      <div class="chat-messages" id="chat-messages">
+        <!-- filled by JS -->
+      </div>
+      <div class="chat-input-row">
+        <input
+          type="text"
+          class="chat-input"
+          id="chat-input"
+          placeholder="메시지 입력..."
+          maxlength="100"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button class="btn btn-send" id="send-btn">전송</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Countdown overlay ── -->
+  <div class="countdown-overlay" id="countdown-overlay">
+    <div class="countdown-label">게임 시작!</div>
+    <div class="countdown-number" id="countdown-number">3</div>
+    <div class="countdown-game-name" id="countdown-game-name"></div>
+  </div>
+
+  <!-- ── Disconnect overlay ── -->
+  <div class="disconnect-overlay" id="disconnect-overlay">
+    <div class="disconnect-title">연결 끊김</div>
+    <div class="disconnect-msg" id="disconnect-msg">연결이 끊어졌습니다.<br />재연결을 시도합니다...</div>
+    <button class="btn btn-reconnect" id="reconnect-btn">다시 연결</button>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="room.js"></script>
+</body>
+</html>
