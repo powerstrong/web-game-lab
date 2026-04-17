@@ -4,53 +4,56 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Web Game Lab</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Outfit:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./styles/lab.css" />
   </head>
   <body>
     <main class="shell">
       <section class="hero">
-        <p class="eyebrow">Rapid Prototype Playground</p>
-        <h1>Web Game Lab</h1>
-        <a class="cta-button" href="./lobby/index.html">🕹️ 텐텐오락실 입장</a>
+        <p class="eyebrow">LOGIN FREE PARTY GAME</p>
+        <h1>
+          링크 하나면
+          <span>우리끼리 바로 게임</span>
+        </h1>
         <p class="hero-copy">
-          Codex와 Claude로 짧게 만들고, 바로 플레이해서, 가능성이 있는 감각만
-          남기는 실험실입니다.
+          설명 길게 안 봐도 됩니다. 이름 쓰고, 친구 부르고, 바로 시작하세요.
         </p>
-      </section>
 
-      <section class="principles">
-        <article>
-          <h2>작게 만든다</h2>
-          <p>한 번에 하나의 재미만 검증합니다. 규칙이 길어지면 실험이 느려집니다.</p>
-        </article>
-        <article>
-          <h2>빨리 버린다</h2>
-          <p>애매한 결과는 끌고 가지 않습니다. 로그를 남기고 다음 아이디어로 갑니다.</p>
-        </article>
-        <article>
-          <h2>쉽게 복제한다</h2>
-          <p>모든 프로토타입은 독립 폴더 구조를 유지해 다른 게임으로 복사하기 쉽습니다.</p>
-        </article>
-      </section>
+        <div class="hero-actions">
+          <a class="cta-button" href="./lobby/index.html">바로 시작</a>
+          <p class="hero-note">로그인 없음 · 설치 없음 · 방 코드 공유</p>
+        </div>
 
-      <section class="grid">
-        <a class="card" href="./prototypes/dodge-square/index.html">
-          <span class="tag">Reflex</span>
-          <h3>Dodge Square</h3>
-          <p>화면 안에서 움직이며 붉은 추적자를 피하는 짧은 생존 프로토타입.</p>
-        </a>
+        <div class="quick-steps" aria-label="빠른 이용 방법">
+          <div class="step">
+            <strong>1</strong>
+            <span>방 만들기</span>
+          </div>
+          <div class="step">
+            <strong>2</strong>
+            <span>친구 초대</span>
+          </div>
+          <div class="step">
+            <strong>3</strong>
+            <span>투표 후 시작</span>
+          </div>
+        </div>
 
-        <a class="card" href="./prototypes/rhythm-tap/index.html">
-          <span class="tag">Timing</span>
-          <h3>Rhythm Tap</h3>
-          <p>비트 타이밍에 맞춰 입력하며 흐름감을 확인하는 리듬 실험.</p>
-        </a>
-
-        <a class="card muted" href="./prototypes/_template/index.html">
-          <span class="tag">Starter</span>
-          <h3>Prototype Template</h3>
-          <p>새 실험을 빠르게 시작하기 위한 최소 골격.</p>
-        </a>
+        <div class="game-strip" aria-label="게임 목록">
+          <a class="game-pill" href="./prototypes/dodge-square/index.html">
+            <strong>네모 피하기</strong>
+            <span>끝까지 버텨라</span>
+          </a>
+          <a class="game-pill" href="./prototypes/rhythm-tap/index.html">
+            <strong>박자 맞추기</strong>
+            <span>정확하게 눌러라</span>
+          </a>
+        </div>
       </section>
     </main>
   </body>

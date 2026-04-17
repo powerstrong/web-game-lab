@@ -1,40 +1,34 @@
 /**
- * room.js — 텐텐오락실 Room Page
+ * room.js - Web Game Lab room page
  * Plain ES6, no framework, no bundler.
  */
 
 'use strict';
 
-// ── Constants ────────────────────────────────────────────────────────────────
-
 const PLAYER_COLORS = [
-  '#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff',
-  '#ff6bff', '#ff9a3c', '#00d4ff', '#c084fc',
+  '#ff7a7a', '#ffbf47', '#59c98a', '#5c8dff',
+  '#c977ff', '#ff9f4f', '#39b8ff', '#7ad3d0',
 ];
 
 const GAME_META = {
-  'dodge-square': { label: 'Dodge Square', icon: '🕹️', path: '../prototypes/dodge-square/' },
-  'rhythm-tap':   { label: 'Rhythm Tap',   icon: '🎵', path: '../prototypes/rhythm-tap/'   },
+  'dodge-square': { label: '네모 피하기', icon: 'A', path: '../prototypes/dodge-square/' },
+  'rhythm-tap': { label: '박자 맞추기', icon: 'B', path: '../prototypes/rhythm-tap/' },
 };
 
 const MAX_RECONNECT = 3;
 const RECONNECT_DELAY_MS = 2000;
 
-// ── State ─────────────────────────────────────────────────────────────────────
-
 let ws = null;
 let roomCode = '';
 let playerName = '';
-let myId = null;          // assigned by server on join_ack
+let myId = null;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
-let myGameVote = null;    // game id this player voted for
-let myStartVote = false;  // whether this player voted to start
-let currentGameVotes = {};  // { gameId: count }
+let myGameVote = null;
+let myStartVote = false;
+let currentGameVotes = {};
 let currentStartVotes = { count: 0, total: 0 };
-let currentGame = null;   // game id chosen for start (from game_start msg)
-
-// ── Init ──────────────────────────────────────────────────────────────────────
+let currentGame = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);
@@ -42,14 +36,12 @@ document.addEventListener('DOMContentLoaded', () => {
   playerName = params.get('name') || sessionStorage.getItem('playerName') || '플레이어';
 
   if (!roomCode) {
-    showDisconnectOverlay('방 코드가 없습니다. 로비로 돌아가세요.');
+    showDisconnectOverlay('방 코드가 없어요. 다시 들어와 주세요.');
     return;
   }
 
-  // Show room code
   document.getElementById('room-code-display').textContent = roomCode;
 
-  // Wire up UI
   document.getElementById('copy-btn').addEventListener('click', copyRoomCode);
   document.getElementById('start-btn').addEventListener('click', voteStart);
   document.getElementById('send-btn').addEventListener('click', sendChat);
@@ -63,7 +55,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') sendChat();
   });
 
-  // Game card clicks
   document.querySelectorAll('.game-card').forEach((card) => {
     card.addEventListener('click', () => voteGame(card.dataset.game));
   });
@@ -71,18 +62,15 @@ document.addEventListener('DOMContentLoaded', () => {
   connect(roomCode, playerName);
 });
 
-// ── WebSocket ─────────────────────────────────────────────────────────────────
-
 function connect(code, name) {
   setConnStatus('connecting', '연결 중...');
 
-  const base = (window.WORKER_URL || window.location.origin)
-    .replace(/^http/, 'ws');
+  const base = (window.WORKER_URL || window.location.origin).replace(/^http/, 'ws');
   const url = `${base}/api/rooms/${encodeURIComponent(code)}?name=${encodeURIComponent(name)}`;
 
   try {
     ws = new WebSocket(url);
-  } catch (err) {
+  } catch {
     onConnectFailed();
     return;
   }
@@ -90,7 +78,9 @@ function connect(code, name) {
   ws.addEventListener('open', onOpen);
   ws.addEventListener('message', onMessage);
   ws.addEventListener('close', onClose);
-  ws.addEventListener('error', () => { /* close fires after error */ });
+  ws.addEventListener('error', () => {
+    // close event follows in the common failure path.
+  });
 }
 
 function onOpen() {
@@ -101,31 +91,40 @@ function onOpen() {
 
 function onMessage(event) {
   let msg;
-  try { msg = JSON.parse(event.data); }
-  catch { return; }
+  try {
+    msg = JSON.parse(event.data);
+  } catch {
+    return;
+  }
   handleMessage(msg);
 }
 
-function onClose(event) {
-  setConnStatus('disconnected', '연결 끊김');
+function onClose() {
   ws = null;
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  setConnStatus('disconnected', '끊김');
 
   if (reconnectAttempts < MAX_RECONNECT) {
     reconnectAttempts++;
-    setConnStatus('connecting', `재연결 중... (${reconnectAttempts}/${MAX_RECONNECT})`);
+    setConnStatus('connecting', `다시 연결... (${reconnectAttempts}/${MAX_RECONNECT})`);
     reconnectTimer = setTimeout(() => connect(roomCode, playerName), RECONNECT_DELAY_MS);
   } else {
-    showDisconnectOverlay('연결이 끊어졌습니다.\n재연결에 실패했습니다.');
+    showDisconnectOverlay('연결이 끊겼어요. 다시 눌러 주세요.');
   }
 }
 
 function onConnectFailed() {
-  setConnStatus('disconnected', '연결 실패');
+  setConnStatus('disconnected', '실패');
   if (reconnectAttempts < MAX_RECONNECT) {
     reconnectAttempts++;
     reconnectTimer = setTimeout(() => connect(roomCode, playerName), RECONNECT_DELAY_MS);
   } else {
-    showDisconnectOverlay('서버에 연결할 수 없습니다.');
+    showDisconnectOverlay('서버에 연결할 수 없어요.');
   }
 }
 
@@ -135,16 +134,13 @@ function send(obj) {
   }
 }
 
-// ── Message handler ───────────────────────────────────────────────────────────
-
 function handleMessage(msg) {
   switch (msg.type) {
-
     case 'welcome':
       myId = msg.playerId;
       renderPlayers(msg.players || [], msg.gameVotes || {});
       renderGameVotes(msg.gameVotes || {});
-      (msg.chatLog || []).forEach(m => appendChat(m.name, m.text, m.colorIndex));
+      (msg.chatLog || []).forEach((m) => appendChat(m.name, m.text, m.colorIndex));
       currentStartVotes = { count: 0, total: (msg.players || []).length };
       renderStartTally();
       break;
@@ -163,11 +159,11 @@ function handleMessage(msg) {
       break;
 
     case 'player_joined':
-      appendSystemChat(`${msg.name} 님이 입장했습니다.`);
+      appendSystemChat(`${msg.name} 입장!`);
       break;
 
     case 'player_left':
-      appendSystemChat(`${msg.name} 님이 퇴장했습니다.`);
+      appendSystemChat(`${msg.name} 퇴장!`);
       break;
 
     case 'players_update':
@@ -199,8 +195,6 @@ function handleMessage(msg) {
       break;
   }
 }
-
-// ── Render: Players ───────────────────────────────────────────────────────────
 
 function renderPlayers(players, gameVotes) {
   currentGameVotes = gameVotes || {};
@@ -238,8 +232,6 @@ function renderPlayers(players, gameVotes) {
   });
 }
 
-// ── Render: Game votes ────────────────────────────────────────────────────────
-
 function renderGameVotes(votes) {
   currentGameVotes = votes || {};
   Object.keys(GAME_META).forEach((gameId) => {
@@ -251,27 +243,23 @@ function renderGameVotes(votes) {
   });
 }
 
-// ── Render: Start tally ───────────────────────────────────────────────────────
-
 function renderStartTally() {
   const tally = document.getElementById('start-tally');
-  tally.textContent = `${currentStartVotes.count} / ${currentStartVotes.total} 시작 동의`;
+  tally.textContent = `${currentStartVotes.count}명 준비`;
 
   const btn = document.getElementById('start-btn');
   btn.classList.toggle('voted-start', myStartVote);
-  btn.textContent = myStartVote ? '시작 취소' : '게임 시작!';
+  btn.textContent = myStartVote
+    ? `준비 취소 (${currentStartVotes.count}/${currentStartVotes.total})`
+    : `준비! (${currentStartVotes.count}/${currentStartVotes.total})`;
 }
-
-// ── Actions ───────────────────────────────────────────────────────────────────
 
 function voteGame(gameId) {
   if (!GAME_META[gameId]) return;
 
-  // Toggle off if already voted for same game
   const newVote = myGameVote === gameId ? null : gameId;
   myGameVote = newVote;
 
-  // Update card highlight
   document.querySelectorAll('.game-card').forEach((card) => {
     card.classList.toggle('voted', card.dataset.game === myGameVote);
   });
@@ -295,15 +283,17 @@ function sendChat() {
 
 function copyRoomCode() {
   const btn = document.getElementById('copy-btn');
-  navigator.clipboard.writeText(roomCode).then(() => {
-    btn.textContent = '복사됨!';
+
+  function showCopied() {
+    btn.textContent = '복사됨';
     btn.classList.add('copied');
     setTimeout(() => {
       btn.textContent = '복사';
       btn.classList.remove('copied');
     }, 1500);
-  }).catch(() => {
-    // Fallback for older browsers / insecure contexts
+  }
+
+  navigator.clipboard.writeText(roomCode).then(showCopied).catch(() => {
     const el = document.createElement('textarea');
     el.value = roomCode;
     el.style.position = 'fixed';
@@ -312,25 +302,17 @@ function copyRoomCode() {
     el.select();
     document.execCommand('copy');
     document.body.removeChild(el);
-    btn.textContent = '복사됨!';
-    btn.classList.add('copied');
-    setTimeout(() => {
-      btn.textContent = '복사';
-      btn.classList.remove('copied');
-    }, 1500);
+    showCopied();
   });
 }
-
-// ── Countdown ─────────────────────────────────────────────────────────────────
 
 function startCountdown(from) {
   const overlay = document.getElementById('countdown-overlay');
   const numEl = document.getElementById('countdown-number');
   const gameNameEl = document.getElementById('countdown-game-name');
 
-  // Show game name if known
   const meta = currentGame ? GAME_META[currentGame] : null;
-  gameNameEl.textContent = meta ? `${meta.icon} ${meta.label}` : '';
+  gameNameEl.textContent = meta ? meta.label : '';
 
   overlay.classList.add('active');
   let current = from;
@@ -362,8 +344,6 @@ function redirectToGame() {
   window.location.href = `${target}?code=${encodeURIComponent(roomCode)}&name=${encodeURIComponent(playerName)}`;
 }
 
-// ── Chat helpers ──────────────────────────────────────────────────────────────
-
 function appendChat(name, text, colorIndex) {
   const msgs = document.getElementById('chat-messages');
   const color = PLAYER_COLORS[typeof colorIndex === 'number' ? colorIndex % PLAYER_COLORS.length : 0];
@@ -374,9 +354,9 @@ function appendChat(name, text, colorIndex) {
   const nameSpan = document.createElement('span');
   nameSpan.className = 'msg-name';
   nameSpan.style.color = color;
-  nameSpan.textContent = name + ':';
+  nameSpan.textContent = `${name}:`;
 
-  const textNode = document.createTextNode(' ' + text);
+  const textNode = document.createTextNode(` ${text}`);
 
   div.appendChild(nameSpan);
   div.appendChild(textNode);
@@ -393,16 +373,12 @@ function appendSystemChat(text) {
   msgs.scrollTop = msgs.scrollHeight;
 }
 
-// ── Connection status UI ──────────────────────────────────────────────────────
-
 function setConnStatus(state, label) {
   const dot = document.getElementById('conn-indicator');
   const lbl = document.getElementById('conn-label');
   dot.className = `conn-indicator ${state}`;
   lbl.textContent = label;
 }
-
-// ── Disconnect overlay ────────────────────────────────────────────────────────
 
 function showDisconnectOverlay(msg) {
   const overlay = document.getElementById('disconnect-overlay');

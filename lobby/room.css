@@ -1,527 +1,490 @@
-/* =============================================
-   room.css — 텐텐오락실 Room Page Styles
-   Dark arcade / neon theme
-   ============================================= */
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
 :root {
-  --bg: #0d0d0d;
-  --surface: #1a1a2e;
-  --surface2: #16213e;
-  --surface3: #0f0f1f;
-  --border: rgba(0, 212, 255, 0.18);
-  --cyan: #00d4ff;
-  --yellow: #ffd700;
-  --red: #ff6b6b;
-  --green: #6bcb77;
-  --text: #e0e0e0;
-  --muted: #555;
-  --muted2: #888;
-  --panel-gap: 1rem;
+  color-scheme: light;
+  --bg: #f4f7ff;
+  --surface: rgba(255, 255, 255, 0.9);
+  --surface-strong: #ffffff;
+  --ink: #182338;
+  --muted: #60708c;
+  --accent: #4b6bff;
+  --accent-strong: #2f51f5;
+  --accent-soft: rgba(75, 107, 255, 0.1);
+  --mint: #37bba5;
+  --mint-soft: rgba(55, 187, 165, 0.12);
+  --danger: #eb5b73;
+  --border: rgba(24, 35, 56, 0.1);
+  --shadow: 0 24px 60px rgba(70, 88, 146, 0.14);
 }
 
-/* Player color palette (8 slots) */
-.player-color[data-color="0"] { background: #ff6b6b; }
-.player-color[data-color="1"] { background: #ffd93d; }
-.player-color[data-color="2"] { background: #6bcb77; }
-.player-color[data-color="3"] { background: #4d96ff; }
-.player-color[data-color="4"] { background: #ff6bff; }
-.player-color[data-color="5"] { background: #ff9a3c; }
-.player-color[data-color="6"] { background: #00d4ff; }
-.player-color[data-color="7"] { background: #c084fc; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
-/* ── Base ── */
+.player-color[data-color="0"] { background: #ff7a7a; }
+.player-color[data-color="1"] { background: #ffbf47; }
+.player-color[data-color="2"] { background: #59c98a; }
+.player-color[data-color="3"] { background: #5c8dff; }
+.player-color[data-color="4"] { background: #c977ff; }
+.player-color[data-color="5"] { background: #ff9f4f; }
+.player-color[data-color="6"] { background: #39b8ff; }
+.player-color[data-color="7"] { background: #7ad3d0; }
+
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: 'Press Start 2P', monospace;
+  margin: 0;
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  font-family: "Noto Sans KR", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(75, 107, 255, 0.18), transparent 30%),
+    linear-gradient(180deg, #fbfcff 0%, var(--bg) 100%);
 }
 
-/* Scanline */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 0.12) 2px,
-    rgba(0, 0, 0, 0.12) 4px
-  );
-  pointer-events: none;
-  z-index: 900;
+.topbar,
+.stage,
+.side-panel,
+.overlay-card {
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
 }
 
-/* ── Top bar ── */
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1.25rem;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  gap: 1rem;
+  gap: 14px;
+  margin: 16px;
+  padding: 18px 20px;
   flex-wrap: wrap;
 }
 
-.topbar-left {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
+.topbar-label,
+.section-kicker {
+  margin: 0 0 4px;
+  color: var(--accent-strong);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.logo,
+.stage-title,
+.panel-title {
+  margin: 0;
+  font-family: "Outfit", "Noto Sans KR", sans-serif;
+  letter-spacing: -0.04em;
 }
 
 .logo {
-  font-size: 0.7rem;
-  color: var(--cyan);
-  text-shadow: 0 0 8px var(--cyan);
-  white-space: nowrap;
+  font-size: 1.25rem;
+  font-weight: 700;
 }
 
-.room-code-block {
+.room-tools,
+.room-code-block,
+.status-wrap {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.room-code-label {
-  font-size: 0.4rem;
-  color: var(--muted2);
-  letter-spacing: 0.08em;
+.room-code-label,
+.conn-label {
+  color: var(--muted);
+  font-size: 0.92rem;
 }
 
 .room-code-value {
-  font-size: 1rem;
-  color: var(--yellow);
-  text-shadow: 0 0 10px rgba(255, 215, 0, 0.6);
-  letter-spacing: 0.15em;
+  min-width: 5rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 14px;
+  background: var(--surface-strong);
+  font-family: "Outfit", "Noto Sans KR", sans-serif;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-align: center;
+}
+
+.copy-btn,
+.btn {
+  border: none;
+  border-radius: 14px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.2s ease;
 }
 
 .copy-btn {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 0.4rem;
-  background: transparent;
-  border: 1px solid var(--yellow);
-  color: var(--yellow);
-  border-radius: 3px;
-  padding: 0.3rem 0.5rem;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  min-height: 42px;
+  padding: 0.65rem 0.95rem;
+  background: #edf2ff;
+  color: var(--accent-strong);
 }
 
 .copy-btn:hover,
-.copy-btn.copied {
-  background: var(--yellow);
-  color: #000;
-}
-
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
+.copy-btn.copied,
+.btn:hover {
+  transform: translateY(-1px);
 }
 
 .conn-indicator {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: var(--muted);
-  flex-shrink: 0;
-  transition: background 0.3s;
+  background: #c3cad8;
 }
 
-.conn-indicator.connected    { background: var(--green); box-shadow: 0 0 6px var(--green); }
-.conn-indicator.disconnected { background: var(--red);   box-shadow: 0 0 6px var(--red); }
-.conn-indicator.connecting   { background: var(--yellow); animation: pulse 1s infinite; }
+.conn-indicator.connected { background: var(--mint); box-shadow: 0 0 0 6px rgba(55, 187, 165, 0.12); }
+.conn-indicator.disconnected { background: var(--danger); box-shadow: 0 0 0 6px rgba(235, 91, 115, 0.12); }
+.conn-indicator.connecting { background: #ffbf47; box-shadow: 0 0 0 6px rgba(255, 191, 71, 0.14); }
 
-.conn-label {
-  font-size: 0.35rem;
-  color: var(--muted2);
-  letter-spacing: 0.05em;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.3; }
-}
-
-/* ── Main layout ── */
-.main {
-  flex: 1;
+.layout {
   display: grid;
-  grid-template-columns: 220px 1fr 280px;
-  grid-template-rows: 1fr;
-  gap: var(--panel-gap);
-  padding: var(--panel-gap);
-  overflow: hidden;
-  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  padding: 0 16px 16px;
 }
 
-/* ── Panels ── */
-.panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+.stage {
+  padding: 24px;
+}
+
+.stage-title {
+  font-size: clamp(2rem, 6vw, 3.4rem);
+  line-height: 0.98;
+}
+
+.game-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.game-card {
+  width: 100%;
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-height: 0;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(75, 107, 255, 0.12);
+  border-radius: 20px;
+  background: var(--surface-strong);
+  color: inherit;
+  text-align: left;
 }
 
-.panel-header {
-  font-size: 0.5rem;
-  color: var(--yellow);
-  letter-spacing: 0.1em;
-  padding: 0.85rem 1rem;
-  border-bottom: 1px solid rgba(255, 215, 0, 0.15);
-  flex-shrink: 0;
+.game-card:hover {
+  border-color: rgba(75, 107, 255, 0.26);
+  box-shadow: 0 16px 28px rgba(70, 88, 146, 0.1);
 }
 
-.panel-body {
+.game-card.voted {
+  border-color: rgba(75, 107, 255, 0.38);
+  background: linear-gradient(135deg, rgba(75, 107, 255, 0.08), rgba(75, 107, 255, 0.02));
+}
+
+.game-badge {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-family: "Outfit", "Noto Sans KR", sans-serif;
+  font-weight: 800;
+}
+
+.game-text {
+  display: flex;
   flex: 1;
-  overflow-y: auto;
-  padding: 0.75rem;
-  min-height: 0;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 
-.panel-body::-webkit-scrollbar { width: 4px; }
-.panel-body::-webkit-scrollbar-track { background: transparent; }
-.panel-body::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 2px; }
+.game-text strong {
+  font-size: 1.08rem;
+}
 
-/* ── Player list ── */
+.game-text small {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.vote-badge {
+  min-width: 34px;
+  padding: 0.35rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.84rem;
+  text-align: center;
+  display: none;
+}
+
+.vote-badge.visible {
+  display: inline-block;
+}
+
+.start-box {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 20px;
+  background: var(--surface-strong);
+}
+
+.start-tally {
+  color: var(--muted);
+  font-size: 0.94rem;
+  text-align: center;
+}
+
+.btn {
+  min-height: 52px;
+}
+
+.btn:active { transform: translateY(0); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+.btn-start,
+.btn-reconnect {
+  width: 100%;
+  margin-top: 10px;
+  background: linear-gradient(135deg, var(--mint) 0%, #22a48e 100%);
+  color: #fff;
+  box-shadow: 0 16px 28px rgba(55, 187, 165, 0.22);
+}
+
+.btn-start.voted-start {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+  box-shadow: 0 16px 28px rgba(75, 107, 255, 0.24);
+}
+
+.sidebar {
+  display: grid;
+  gap: 16px;
+}
+
+.side-panel {
+  padding: 20px;
+}
+
+.panel-title {
+  font-size: 1.4rem;
+}
+
+.player-list {
+  margin-top: 14px;
+}
+
 .player-item {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.4rem;
-  border-radius: 4px;
-  transition: background 0.15s;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(24, 35, 56, 0.06);
 }
 
-.player-item:hover { background: rgba(255,255,255,0.04); }
+.player-item:last-child {
+  border-bottom: none;
+}
 
 .player-color {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
 .player-name {
-  font-size: 0.45rem;
-  letter-spacing: 0.04em;
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 700;
 }
 
-.player-name.is-self { color: var(--cyan); }
+.player-name.is-self {
+  color: var(--accent-strong);
+}
 
 .player-vote-icon {
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
   font-size: 0.8rem;
-  flex-shrink: 0;
-  opacity: 0.85;
+  font-weight: 800;
 }
 
-/* ── Game cards ── */
-.game-cards {
+.chat-panel {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  min-height: 320px;
 }
 
-.game-card {
-  background: var(--surface2);
-  border: 2px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-  position: relative;
-}
-
-.game-card:hover {
-  border-color: rgba(0, 212, 255, 0.5);
-  box-shadow: 0 0 14px rgba(0, 212, 255, 0.25);
-}
-
-.game-card.voted {
-  border-color: var(--cyan);
-  background: rgba(0, 212, 255, 0.08);
-  box-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
-}
-
-.game-icon {
-  font-size: 1.8rem;
-  flex-shrink: 0;
-  line-height: 1;
-}
-
-.game-info { flex: 1; min-width: 0; }
-
-.game-title {
-  font-size: 0.55rem;
-  color: var(--text);
-  margin-bottom: 0.35rem;
-  letter-spacing: 0.05em;
-}
-
-.game-desc {
-  font-size: 0.35rem;
-  color: var(--muted2);
-  letter-spacing: 0.03em;
-  line-height: 1.6;
-}
-
-.vote-badge {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.6rem;
-  background: var(--cyan);
-  color: #000;
-  font-size: 0.4rem;
-  padding: 0.2rem 0.45rem;
-  border-radius: 10px;
-  min-width: 1.4rem;
-  text-align: center;
-  display: none;
-}
-
-.vote-badge.visible { display: block; }
-
-/* ── Start vote section ── */
-.start-section {
-  border-top: 1px solid var(--border);
-  padding-top: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.start-tally {
-  font-size: 0.4rem;
-  color: var(--muted2);
-  text-align: center;
-  letter-spacing: 0.06em;
-}
-
-.btn {
-  font-family: 'Press Start 2P', monospace;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: transform 0.1s, box-shadow 0.2s, opacity 0.2s;
-  letter-spacing: 0.06em;
-}
-
-.btn:active { transform: scale(0.97); }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-
-.btn-start {
-  font-size: 0.55rem;
-  padding: 0.85rem;
-  background: var(--green);
-  color: #000;
-  width: 100%;
-  box-shadow: 0 0 14px rgba(107, 203, 119, 0.5);
-}
-
-.btn-start:hover:not(:disabled) {
-  box-shadow: 0 0 22px rgba(107, 203, 119, 0.8);
-}
-
-.btn-start.voted-start {
-  background: var(--yellow);
-  box-shadow: 0 0 14px rgba(255, 215, 0, 0.5);
-}
-
-/* ── Chat ── */
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 0.75rem;
+  margin-top: 14px;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  min-height: 0;
+  gap: 8px;
 }
 
-.chat-messages::-webkit-scrollbar { width: 4px; }
-.chat-messages::-webkit-scrollbar-track { background: transparent; }
-.chat-messages::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 2px; }
-
 .chat-message {
-  font-size: 0.42rem;
-  line-height: 1.7;
-  word-break: break-word;
-  letter-spacing: 0.02em;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #f7f9ff;
+  line-height: 1.5;
 }
 
 .chat-message .msg-name {
-  font-size: 0.4rem;
-  font-weight: bold;
-  margin-right: 0.4em;
+  font-weight: 800;
+  margin-right: 0.35rem;
 }
 
 .chat-message.system {
-  color: var(--muted2);
-  font-style: italic;
+  background: transparent;
+  color: var(--muted);
   text-align: center;
-  font-size: 0.38rem;
+  font-size: 0.9rem;
 }
 
 .chat-input-row {
   display: flex;
-  gap: 0.5rem;
-  padding: 0.6rem;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .chat-input {
   flex: 1;
-  background: var(--surface3);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  font-family: 'Press Start 2P', monospace;
-  font-size: 0.42rem;
-  padding: 0.5rem 0.65rem;
-  outline: none;
-  transition: border-color 0.2s;
   min-width: 0;
+  min-height: 50px;
+  border: 1px solid rgba(75, 107, 255, 0.14);
+  border-radius: 14px;
+  background: #f8faff;
+  color: var(--ink);
+  font: inherit;
+  padding: 0.8rem 1rem;
+  outline: none;
 }
 
-.chat-input:focus { border-color: var(--cyan); }
+.chat-input:focus {
+  border-color: rgba(75, 107, 255, 0.42);
+  box-shadow: 0 0 0 4px rgba(75, 107, 255, 0.1);
+  background: #fff;
+}
 
 .btn-send {
-  font-size: 0.4rem;
-  padding: 0.5rem 0.65rem;
-  background: var(--cyan);
-  color: #000;
-  flex-shrink: 0;
-  box-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
+  min-width: 84px;
+  background: #edf2ff;
+  color: var(--accent-strong);
 }
 
-.btn-send:hover {
-  box-shadow: 0 0 14px rgba(0, 212, 255, 0.7);
-}
-
-/* ── Countdown overlay ── */
-.countdown-overlay {
+.countdown-overlay,
+.disconnect-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.92);
-  z-index: 100;
   display: none;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1.5rem;
+  padding: 18px;
+  background: rgba(17, 24, 39, 0.36);
+  backdrop-filter: blur(10px);
 }
 
-.countdown-overlay.active { display: flex; }
+.countdown-overlay.active,
+.disconnect-overlay.active {
+  display: flex;
+}
 
-.countdown-label {
-  font-size: 0.7rem;
-  color: var(--muted2);
-  letter-spacing: 0.15em;
+.overlay-card {
+  width: min(100%, 360px);
+  padding: 24px;
+  text-align: center;
+}
+
+.countdown-label,
+.disconnect-title {
+  font-family: "Outfit", "Noto Sans KR", sans-serif;
+  font-size: 1.5rem;
+  font-weight: 800;
 }
 
 .countdown-number {
-  font-size: clamp(5rem, 20vw, 10rem);
-  color: var(--cyan);
-  text-shadow:
-    0 0 20px var(--cyan),
-    0 0 60px var(--cyan),
-    0 0 120px rgba(0, 212, 255, 0.5);
-  transition: transform 0.15s ease-out, opacity 0.15s;
+  margin-top: 8px;
+  font-family: "Outfit", "Noto Sans KR", sans-serif;
+  font-size: clamp(4rem, 12vw, 6rem);
+  font-weight: 800;
   line-height: 1;
 }
 
 .countdown-number.pop {
-  transform: scale(1.25);
+  transform: scale(1.08);
 }
 
-.countdown-game-name {
-  font-size: 0.6rem;
-  color: var(--yellow);
-  letter-spacing: 0.12em;
-}
-
-/* ── Disconnect overlay ── */
-.disconnect-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.88);
-  z-index: 200;
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1.5rem;
-}
-
-.disconnect-overlay.active { display: flex; }
-
-.disconnect-title {
-  font-size: 0.75rem;
-  color: var(--red);
-  text-shadow: 0 0 14px var(--red);
-  letter-spacing: 0.1em;
-}
-
+.countdown-game-name,
 .disconnect-msg {
-  font-size: 0.45rem;
-  color: var(--muted2);
-  text-align: center;
-  letter-spacing: 0.06em;
-  line-height: 2;
+  margin-top: 10px;
+  color: var(--muted);
 }
 
-.btn-reconnect {
-  font-size: 0.5rem;
-  padding: 0.85rem 1.5rem;
-  background: var(--cyan);
-  color: #000;
-  box-shadow: 0 0 14px rgba(0, 212, 255, 0.5);
-}
-
-.btn-reconnect:hover {
-  box-shadow: 0 0 22px rgba(0, 212, 255, 0.8);
-}
-
-/* ── Responsive (mobile / tablet) ── */
-@media (max-width: 900px) {
-  .main {
+@media (max-width: 960px) {
+  .layout {
     grid-template-columns: 1fr;
-    grid-template-rows: auto auto 1fr;
-    overflow-y: auto;
-    overflow-x: hidden;
+  }
+}
+
+@media (max-width: 560px) {
+  .topbar,
+  .stage,
+  .side-panel,
+  .overlay-card {
+    border-radius: 20px;
   }
 
-  body { overflow: auto; }
+  .topbar,
+  .layout {
+    margin: 12px;
+    padding: 0;
+  }
 
-  .panel { min-height: 200px; }
+  .topbar {
+    padding: 16px;
+  }
 
-  /* Chat panel gets more room on mobile */
-  .panel:last-child { min-height: 300px; }
-}
+  .layout {
+    display: block;
+  }
 
-@media (max-width: 480px) {
-  .topbar { padding: 0.6rem 0.75rem; }
-  .logo { font-size: 0.55rem; }
-  .room-code-value { font-size: 0.75rem; }
+  .stage,
+  .side-panel {
+    margin-bottom: 12px;
+  }
+
+  .room-tools,
+  .room-code-block,
+  .status-wrap,
+  .chat-input-row {
+    width: 100%;
+  }
+
+  .chat-input-row {
+    flex-direction: column;
+  }
+
+  .btn-send,
+  .copy-btn {
+    width: 100%;
+  }
 }

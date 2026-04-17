@@ -1,170 +1,197 @@
 :root {
   color-scheme: light;
-  --bg: #f4efe5;
-  --surface: rgba(255, 250, 241, 0.82);
-  --surface-strong: #fffaf0;
-  --ink: #1b1b19;
-  --muted: #60584a;
-  --accent: #d2683c;
-  --accent-2: #1f6c5c;
-  --border: rgba(27, 27, 25, 0.12);
-  --shadow: 0 22px 60px rgba(58, 43, 20, 0.12);
+  --bg: #f4f7ff;
+  --surface: rgba(255, 255, 255, 0.88);
+  --surface-strong: #ffffff;
+  --ink: #182338;
+  --muted: #60708c;
+  --accent: #4b6bff;
+  --accent-strong: #2f51f5;
+  --accent-soft: rgba(75, 107, 255, 0.1);
+  --mint: #37bba5;
+  --border: rgba(24, 35, 56, 0.1);
+  --shadow: 0 24px 60px rgba(70, 88, 146, 0.14);
 }
 
 * {
   box-sizing: border-box;
 }
 
-.cta-button {
-  display: inline-block;
-  margin-top: 1.5rem;
-  padding: 0.75rem 1.75rem;
-  background: var(--accent);
-  color: #fff;
-  text-decoration: none;
-  border-radius: 6px;
-  font-weight: 700;
-  font-size: 1rem;
-  transition: opacity 0.15s;
-}
-
-.cta-button:hover {
-  opacity: 0.85;
-}
-
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Noto Sans KR", sans-serif;
   color: var(--ink);
   background:
-    radial-gradient(circle at top left, rgba(210, 104, 60, 0.18), transparent 34%),
-    radial-gradient(circle at bottom right, rgba(31, 108, 92, 0.16), transparent 30%),
-    linear-gradient(180deg, #fbf6ed 0%, var(--bg) 100%);
+    radial-gradient(circle at top left, rgba(75, 107, 255, 0.18), transparent 30%),
+    radial-gradient(circle at 88% 18%, rgba(55, 187, 165, 0.14), transparent 20%),
+    linear-gradient(180deg, #fbfcff 0%, var(--bg) 100%);
 }
 
 .shell {
-  width: min(1120px, calc(100% - 32px));
+  width: min(920px, calc(100% - 28px));
   margin: 0 auto;
-  padding: 48px 0 80px;
+  padding: 32px 0 56px;
 }
 
 .hero {
-  padding: 32px;
+  padding: 28px;
   border: 1px solid var(--border);
-  border-radius: 28px;
+  border-radius: 32px;
   background: var(--surface);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(16px);
 }
 
 .eyebrow {
-  margin: 0 0 12px;
-  color: var(--accent-2);
-  font-size: 0.78rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  margin: 0 0 14px;
+  color: var(--accent-strong);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
 }
 
 h1 {
   margin: 0;
-  font-size: clamp(2.6rem, 8vw, 5.5rem);
-  line-height: 0.94;
+  font-family: "Outfit", "Noto Sans KR", sans-serif;
+  font-size: clamp(3rem, 9vw, 5.4rem);
+  line-height: 0.95;
+  letter-spacing: -0.05em;
+}
+
+h1 span {
+  display: block;
 }
 
 .hero-copy {
-  width: min(640px, 100%);
-  margin: 18px 0 0;
+  max-width: 32rem;
+  margin: 16px 0 0;
   color: var(--muted);
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   line-height: 1.65;
 }
 
-.principles {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 18px;
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 24px;
 }
 
-.principles article,
-.card {
-  border: 1px solid var(--border);
-  border-radius: 24px;
-  background: var(--surface-strong);
-  box-shadow: var(--shadow);
+.cta-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 54px;
+  padding: 0.85rem 1.5rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 800;
+  box-shadow: 0 16px 28px rgba(75, 107, 255, 0.26);
+  transition: transform 180ms ease, box-shadow 180ms ease;
 }
 
-.principles article {
-  padding: 20px;
+.cta-button:hover,
+.cta-button:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 32px rgba(75, 107, 255, 0.32);
 }
 
-.principles h2,
-.card h3 {
-  margin: 0 0 10px;
-  font-size: 1.25rem;
-}
-
-.principles p,
-.card p {
+.hero-note {
   margin: 0;
   color: var(--muted);
-  line-height: 1.6;
+  font-size: 0.94rem;
 }
 
-.grid {
+.quick-steps {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   margin-top: 28px;
 }
 
-.card {
+.step,
+.game-pill {
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--surface-strong);
+}
+
+.step {
+  padding: 16px;
+}
+
+.step strong {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-family: "Outfit", "Noto Sans KR", sans-serif;
+}
+
+.step span {
   display: block;
-  padding: 22px;
+  margin-top: 10px;
+  font-weight: 700;
+}
+
+.game-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.game-pill {
+  display: block;
+  padding: 18px;
   color: inherit;
   text-decoration: none;
-  transition:
-    transform 180ms ease,
-    border-color 180ms ease,
-    background 180ms ease;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
-.card:hover,
-.card:focus-visible {
-  transform: translateY(-3px);
-  border-color: rgba(210, 104, 60, 0.5);
-  background: #fffdf8;
+.game-pill:hover,
+.game-pill:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(75, 107, 255, 0.24);
+  box-shadow: 0 16px 28px rgba(70, 88, 146, 0.12);
 }
 
-.card.muted {
-  background:
-    linear-gradient(135deg, rgba(31, 108, 92, 0.08), rgba(255, 250, 240, 0.96));
+.game-pill strong {
+  display: block;
+  font-size: 1.05rem;
 }
 
-.tag {
-  display: inline-block;
-  margin-bottom: 12px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(210, 104, 60, 0.12);
-  color: var(--accent);
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.game-pill span {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.94rem;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 680px) {
   .shell {
-    width: min(100% - 20px, 1120px);
-    padding-top: 20px;
+    width: min(100% - 18px, 920px);
+    padding-top: 18px;
   }
 
   .hero {
-    padding: 24px;
+    padding: 22px 18px;
+    border-radius: 24px;
   }
 
-  .principles {
+  .quick-steps,
+  .game-strip {
     grid-template-columns: 1fr;
+  }
+
+  h1 {
+    font-size: clamp(2.4rem, 13vw, 4rem);
   }
 }
