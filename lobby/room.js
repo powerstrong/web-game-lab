@@ -96,6 +96,7 @@ function connect(code, name) {
 function onOpen() {
   reconnectAttempts = 0;
   setConnStatus('connected', '연결됨');
+  send({ type: 'join', name: playerName });
 }
 
 function onMessage(event) {
@@ -139,6 +140,15 @@ function send(obj) {
 function handleMessage(msg) {
   switch (msg.type) {
 
+    case 'welcome':
+      myId = msg.playerId;
+      renderPlayers(msg.players || [], msg.gameVotes || {});
+      renderGameVotes(msg.gameVotes || {});
+      (msg.chatLog || []).forEach(m => appendChat(m.name, m.text, m.colorIndex));
+      currentStartVotes = { count: 0, total: (msg.players || []).length };
+      renderStartTally();
+      break;
+
     case 'join_ack':
       myId = msg.id;
       break;
@@ -180,7 +190,7 @@ function handleMessage(msg) {
       break;
 
     case 'game_start':
-      currentGame = msg.game;
+      currentGame = msg.gameId;
       startCountdown(3);
       break;
 
@@ -266,7 +276,7 @@ function voteGame(gameId) {
     card.classList.toggle('voted', card.dataset.game === myGameVote);
   });
 
-  send({ type: 'vote_game', game: newVote });
+  send({ type: 'vote_game', gameId: newVote });
 }
 
 function voteStart() {

@@ -85,7 +85,7 @@ export class GameRoom {
         if (player) await this._handleVoteGame(player, msg);
         break;
       case 'vote_start':
-        if (player) await this._handleVoteStart(player);
+        if (player) await this._handleVoteStart(player, msg);
         break;
       case 'ping':
         ws.send(JSON.stringify({ type: 'pong' }));
@@ -109,7 +109,7 @@ export class GameRoom {
     const color = COLORS[this.colorIndex % COLORS.length];
     this.colorIndex++;
 
-    const playerData = { id, name, color };
+    const playerData = { id, name, color, colorIndex: this.colorIndex - 1 };
     this.players.set(ws, playerData);
 
     // Send welcome to new player
@@ -128,6 +128,9 @@ export class GameRoom {
 
     // Broadcast player_joined to everyone else
     this._broadcast({ type: 'player_joined', player: playerData }, ws);
+
+    // Broadcast updated player list to everyone
+    this._broadcastAll({ type: 'players_update', players: Array.from(this.players.values()) });
   }
 
   async _handleChat(ws, player, msg) {
@@ -150,27 +153,34 @@ export class GameRoom {
 
   async _handleVoteGame(player, msg) {
     const gameId = msg.gameId;
-    if (!GAME_PATHS[gameId]) return;
 
-    this.gameVotes.set(player.id, gameId);
+    if (!gameId) {
+      this.gameVotes.delete(player.id);
+    } else {
+      if (!GAME_PATHS[gameId]) return;
+      this.gameVotes.set(player.id, gameId);
+    }
 
-    this._broadcastAll({
-      type: 'game_voted',
-      playerId: player.id,
-      gameId,
-      votes: Object.fromEntries(this.gameVotes),
-    });
+    const voteTally = {};
+    for (const gId of this.gameVotes.values()) {
+      voteTally[gId] = (voteTally[gId] || 0) + 1;
+    }
+
+    this._broadcastAll({ type: 'game_vote_update', votes: voteTally });
 
     await this._checkStartCondition();
   }
 
-  async _handleVoteStart(player) {
-    this.startVotes.add(player.id);
+  async _handleVoteStart(player, msg) {
+    if (msg.vote === false) {
+      this.startVotes.delete(player.id);
+    } else {
+      this.startVotes.add(player.id);
+    }
 
     this._broadcastAll({
-      type: 'start_voted',
-      playerId: player.id,
-      startVotes: Array.from(this.startVotes),
+      type: 'start_vote_update',
+      count: this.startVotes.size,
       total: this.players.size,
     });
 
@@ -238,7 +248,8 @@ export class GameRoom {
     this.gameVotes.delete(player.id);
     this.startVotes.delete(player.id);
 
-    this._broadcastAll({ type: 'player_left', playerId: player.id });
+    this._broadcastAll({ type: 'player_left', playerId: player.id, name: player.name });
+    this._broadcastAll({ type: 'players_update', players: Array.from(this.players.values()) });
   }
 
   // ─── Broadcast helpers ─────────────────────────────────────────────────────
