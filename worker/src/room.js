@@ -1,17 +1,11 @@
 const COLORS = [
-  '#ef4444', // red
-  '#3b82f6', // blue
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#a855f7', // purple
-  '#ec4899', // pink
-  '#14b8a6', // teal
-  '#f97316', // orange
+  '#ef4444', '#3b82f6', '#22c55e', '#f59e0b',
+  '#a855f7', '#ec4899', '#14b8a6', '#f97316',
 ];
 
 const GAME_PATHS = {
   'dodge-square': '/prototypes/dodge-square/index.html',
-  'rhythm-tap': '/prototypes/rhythm-tap/index.html',
+  'rhythm-tap':   '/prototypes/rhythm-tap/index.html',
 };
 
 function randomHex(len) {
@@ -24,249 +18,182 @@ export class GameRoom {
   constructor(state, env) {
     this.state = state;
     this.env = env;
-
-    // In-memory state (persists across messages within same DO instance)
-    this.players = new Map();       // ws -> {id, name, color}
-    this.gameVotes = new Map();     // playerId -> gameId
-    this.startVotes = new Set();    // playerId
-    this.phase = 'lobby';
-    this.chatLog = [];
-    this.code = '';
-    this.colorIndex = 0;
-    this.countdownActive = false;
   }
 
-  // ─── fetch ────────────────────────────────────────────────────────────────
+  // Returns [{ws, player}] for all connected, registered players
+  _getSessions() {
+    return this.state.getWebSockets()
+      .map(ws => ({ ws, player: ws.deserializeAttachment() }))
+      .filter(({ player }) => player != null);
+  }
+
+  _broadcastAll(msg) {
+    const text = JSON.stringify(msg);
+    for (const ws of this.state.getWebSockets()) {
+      try { ws.send(text); } catch { /* ignore closed */ }
+    }
+  }
+
+  _broadcastExcept(msg, excludeWs) {
+    const text = JSON.stringify(msg);
+    for (const ws of this.state.getWebSockets()) {
+      if (ws === excludeWs) continue;
+      try { ws.send(text); } catch { /* ignore closed */ }
+    }
+  }
+
+  _buildGameVotes(sessions) {
+    const tally = {};
+    for (const { player } of sessions) {
+      if (player.gameVote) tally[player.gameVote] = (tally[player.gameVote] || 0) + 1;
+    }
+    return tally;
+  }
+
+  // ── fetch ──────────────────────────────────────────────────────────────────
 
   async fetch(request) {
     const url = new URL(request.url);
 
-    // Internal init call from index.js
     if (request.method === 'POST' && url.pathname === '/init') {
       const { code } = await request.json();
-      this.code = code;
+      await this.state.storage.put('code', code);
       return new Response('OK');
     }
 
-    // WebSocket upgrade
-    const upgradeHeader = request.headers.get('Upgrade');
-    if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
+    const upgrade = request.headers.get('Upgrade');
+    if (!upgrade || upgrade.toLowerCase() !== 'websocket') {
       return new Response('Expected WebSocket upgrade', { status: 426 });
     }
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-
     this.state.acceptWebSocket(server);
-
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  // ─── WebSocket handlers ────────────────────────────────────────────────────
+  // ── WebSocket event handlers ────────────────────────────────────────────────
 
   async webSocketMessage(ws, rawMsg) {
     let msg;
-    try {
-      msg = JSON.parse(rawMsg);
-    } catch {
-      return;
-    }
+    try { msg = JSON.parse(rawMsg); } catch { return; }
 
-    const player = this.players.get(ws);
+    const player = ws.deserializeAttachment();
 
     switch (msg.type) {
-      case 'join':
-        await this._handleJoin(ws, msg);
-        break;
-      case 'chat':
-        if (player) await this._handleChat(ws, player, msg);
-        break;
-      case 'vote_game':
-        if (player) await this._handleVoteGame(player, msg);
-        break;
-      case 'vote_start':
-        if (player) await this._handleVoteStart(player, msg);
-        break;
-      case 'ping':
-        ws.send(JSON.stringify({ type: 'pong' }));
-        break;
+      case 'join':      await this._handleJoin(ws, msg);                        break;
+      case 'chat':      if (player) await this._handleChat(player, msg);        break;
+      case 'vote_game': if (player) await this._handleVoteGame(ws, player, msg); break;
+      case 'vote_start':if (player) await this._handleVoteStart(ws, player, msg);break;
+      case 'ping':      ws.send(JSON.stringify({ type: 'pong' }));              break;
     }
   }
 
-  async webSocketClose(ws) {
-    await this._removePlayer(ws);
-  }
+  async webSocketClose(ws) { await this._removePlayer(ws); }
+  async webSocketError(ws) { await this._removePlayer(ws); }
 
-  async webSocketError(ws) {
-    await this._removePlayer(ws);
-  }
-
-  // ─── Message handlers ──────────────────────────────────────────────────────
+  // ── Message handlers ────────────────────────────────────────────────────────
 
   async _handleJoin(ws, msg) {
-    const name = (msg.name || 'Player').slice(0, 32);
-    const id = randomHex(6);
-    const color = COLORS[this.colorIndex % COLORS.length];
-    this.colorIndex++;
+    const name = (msg.name || '플레이어').slice(0, 32);
 
-    const playerData = { id, name, color, colorIndex: this.colorIndex - 1 };
-    this.players.set(ws, playerData);
+    let colorIndex = (await this.state.storage.get('colorIndex')) || 0;
+    const color = COLORS[colorIndex % COLORS.length];
+    await this.state.storage.put('colorIndex', colorIndex + 1);
 
-    // Send welcome to new player
-    const playersArr = Array.from(this.players.values());
-    const gameVotesObj = Object.fromEntries(this.gameVotes);
+    const playerData = { id: randomHex(6), name, color, colorIndex, gameVote: null, startVote: false };
+    ws.serializeAttachment(playerData);
 
-    ws.send(JSON.stringify({
-      type: 'welcome',
-      playerId: id,
-      code: this.code,
-      players: playersArr,
-      chatLog: this.chatLog,
-      gameVotes: gameVotesObj,
-      phase: this.phase,
-    }));
+    const sessions  = this._getSessions();
+    const players   = sessions.map(s => s.player);
+    const chatLog   = (await this.state.storage.get('chatLog')) || [];
+    const code      = (await this.state.storage.get('code')) || '';
+    const phase     = (await this.state.storage.get('phase')) || 'lobby';
+    const gameVotes = this._buildGameVotes(sessions);
 
-    // Broadcast player_joined to everyone else
-    this._broadcast({ type: 'player_joined', player: playerData }, ws);
-
-    // Broadcast updated player list to everyone
-    this._broadcastAll({ type: 'players_update', players: Array.from(this.players.values()) });
+    ws.send(JSON.stringify({ type: 'welcome', playerId: playerData.id, code, players, chatLog, gameVotes, phase }));
+    this._broadcastExcept({ type: 'player_joined', player: playerData }, ws);
+    this._broadcastAll({ type: 'players_update', players });
   }
 
-  async _handleChat(ws, player, msg) {
-    const text = (msg.text || '').slice(0, 256);
-    if (!text.trim()) return;
+  async _handleChat(player, msg) {
+    const text = (msg.text || '').slice(0, 256).trim();
+    if (!text) return;
 
-    const entry = {
-      type: 'chat',
-      playerId: player.id,
-      name: player.name,
-      text,
-      ts: Date.now(),
-    };
+    const entry = { type: 'chat', playerId: player.id, name: player.name, colorIndex: player.colorIndex, text, ts: Date.now() };
 
-    this.chatLog.push(entry);
-    if (this.chatLog.length > 50) this.chatLog.shift();
+    const chatLog = (await this.state.storage.get('chatLog')) || [];
+    chatLog.push(entry);
+    if (chatLog.length > 50) chatLog.shift();
+    await this.state.storage.put('chatLog', chatLog);
 
     this._broadcastAll(entry);
   }
 
-  async _handleVoteGame(player, msg) {
-    const gameId = msg.gameId;
+  async _handleVoteGame(ws, player, msg) {
+    const gameId = msg.gameId || null;
+    if (gameId && !GAME_PATHS[gameId]) return;
 
-    if (!gameId) {
-      this.gameVotes.delete(player.id);
-    } else {
-      if (!GAME_PATHS[gameId]) return;
-      this.gameVotes.set(player.id, gameId);
-    }
+    ws.serializeAttachment({ ...player, gameVote: gameId });
 
-    const voteTally = {};
-    for (const gId of this.gameVotes.values()) {
-      voteTally[gId] = (voteTally[gId] || 0) + 1;
-    }
-
-    this._broadcastAll({ type: 'game_vote_update', votes: voteTally });
-
-    await this._checkStartCondition();
+    const sessions  = this._getSessions();
+    const gameVotes = this._buildGameVotes(sessions);
+    this._broadcastAll({ type: 'game_vote_update', votes: gameVotes });
+    await this._checkStartCondition(sessions);
   }
 
-  async _handleVoteStart(player, msg) {
-    if (msg.vote === false) {
-      this.startVotes.delete(player.id);
-    } else {
-      this.startVotes.add(player.id);
-    }
+  async _handleVoteStart(ws, player, msg) {
+    const vote = msg.vote !== false;
+    ws.serializeAttachment({ ...player, startVote: vote });
 
-    this._broadcastAll({
-      type: 'start_vote_update',
-      count: this.startVotes.size,
-      total: this.players.size,
-    });
-
-    await this._checkStartCondition();
+    const sessions   = this._getSessions();
+    const startCount = sessions.filter(s => s.player.startVote).length;
+    this._broadcastAll({ type: 'start_vote_update', count: startCount, total: sessions.length });
+    await this._checkStartCondition(sessions);
   }
 
-  async _checkStartCondition() {
-    if (this.phase !== 'lobby') return;
-    if (this.countdownActive) return;
+  async _checkStartCondition(sessions) {
+    const phase = (await this.state.storage.get('phase')) || 'lobby';
+    if (phase !== 'lobby') return;
 
-    const playerCount = this.players.size;
-    if (playerCount === 0) return;
+    const total = sessions.length;
+    if (total === 0) return;
 
-    // Majority start votes: >50%
-    if (this.startVotes.size <= playerCount / 2) return;
+    const startCount = sessions.filter(s => s.player.startVote).length;
+    if (startCount <= total / 2) return;
 
-    // Find majority game vote
-    const tally = new Map();
-    for (const gameId of this.gameVotes.values()) {
-      tally.set(gameId, (tally.get(gameId) || 0) + 1);
+    const tally = {};
+    for (const { player } of sessions) {
+      if (player.gameVote) tally[player.gameVote] = (tally[player.gameVote] || 0) + 1;
     }
 
-    let topGame = null;
-    let topCount = 0;
-    for (const [gameId, count] of tally) {
-      if (count > topCount) {
-        topCount = count;
-        topGame = gameId;
-      }
+    let topGame = null, topCount = 0;
+    for (const [gameId, count] of Object.entries(tally)) {
+      if (count > topCount) { topGame = gameId; topCount = count; }
     }
 
-    // Need a majority game vote too
-    if (!topGame || topCount <= playerCount / 2) return;
-
+    if (!topGame || topCount <= total / 2) return;
     await this._startCountdown(topGame);
   }
 
   async _startCountdown(gameId) {
-    this.countdownActive = true;
-    this.phase = 'countdown';
-
-    // Capture origin from one of the connected websockets' attachment or use a fallback
-    // We'll resolve the base URL at game_start time via the env or a stored origin
-    const baseUrl = this.baseUrl || '';
-
+    await this.state.storage.put('phase', 'countdown');
     for (const seconds of [3, 2, 1]) {
       this._broadcastAll({ type: 'countdown', seconds });
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(r => setTimeout(r, 1000));
     }
-
-    this.phase = 'playing';
-    const gamePath = GAME_PATHS[gameId];
-    const gameUrl = `${baseUrl}${gamePath}`;
-
-    this._broadcastAll({ type: 'game_start', gameId, url: gameUrl });
+    await this.state.storage.put('phase', 'playing');
+    this._broadcastAll({ type: 'game_start', gameId });
   }
-
-  // ─── Player removal ────────────────────────────────────────────────────────
 
   async _removePlayer(ws) {
-    const player = this.players.get(ws);
+    const player = ws.deserializeAttachment();
+    ws.serializeAttachment(null);
     if (!player) return;
 
-    this.players.delete(ws);
-    this.gameVotes.delete(player.id);
-    this.startVotes.delete(player.id);
-
+    const sessions = this._getSessions(); // excludes the null'd player
+    const players  = sessions.map(s => s.player);
     this._broadcastAll({ type: 'player_left', playerId: player.id, name: player.name });
-    this._broadcastAll({ type: 'players_update', players: Array.from(this.players.values()) });
-  }
-
-  // ─── Broadcast helpers ─────────────────────────────────────────────────────
-
-  _broadcastAll(msg) {
-    const text = JSON.stringify(msg);
-    for (const ws of this.players.keys()) {
-      try { ws.send(text); } catch { /* closed */ }
-    }
-  }
-
-  // Broadcast to everyone except `exclude`
-  _broadcast(msg, exclude) {
-    const text = JSON.stringify(msg);
-    for (const ws of this.players.keys()) {
-      if (ws === exclude) continue;
-      try { ws.send(text); } catch { /* closed */ }
-    }
+    this._broadcastAll({ type: 'players_update', players });
   }
 }
