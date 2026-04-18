@@ -10,10 +10,10 @@ const PLAYER_COLORS = [
   '#c977ff', '#ff9f4f', '#39b8ff', '#7ad3d0',
 ];
 
-const GAME_META = {
-  'dodge-square': { label: '네모 피하기', icon: 'A', path: '../prototypes/dodge-square/' },
-  'rhythm-tap': { label: '박자 맞추기', icon: 'B', path: '../prototypes/rhythm-tap/' },
-};
+// Built from games/registry.js (loaded before this script via room.html)
+const GAME_META = Object.fromEntries(
+  (window.GAME_REGISTRY || []).map(g => [g.id, { label: g.title, icon: g.icon, path: g.path }])
+);
 
 const MAX_RECONNECT = 3;
 const RECONNECT_DELAY_MS = 2000;
@@ -30,6 +30,24 @@ let currentGameVotes = {};
 let currentStartVotes = { count: 0, total: 0 };
 let currentGame = null;
 
+function renderGameList() {
+  const list = document.getElementById('game-list');
+  if (!list) return;
+  list.innerHTML = '';
+  Object.entries(GAME_META).forEach(([id, meta]) => {
+    const btn = document.createElement('button');
+    btn.className = 'game-card';
+    btn.id = `card-${id}`;
+    btn.dataset.game = id;
+    btn.type = 'button';
+    btn.innerHTML =
+      `<span class="game-badge">${meta.icon}</span>` +
+      `<span class="game-text"><strong>${meta.label}</strong></span>` +
+      `<span class="vote-badge" id="badge-${id}">0</span>`;
+    list.appendChild(btn);
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);
   roomCode = params.get('code') || '';
@@ -39,6 +57,8 @@ document.addEventListener('DOMContentLoaded', () => {
     showDisconnectOverlay('방 코드가 없습니다. 로비에서 다시 입장해 주세요.');
     return;
   }
+
+  renderGameList();
 
   document.getElementById('room-code-display').textContent = roomCode;
 

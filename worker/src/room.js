@@ -3,9 +3,11 @@ const COLORS = [
   '#a855f7', '#ec4899', '#14b8a6', '#f97316',
 ];
 
+// Keep in sync with /games/registry.js (browser can't import that file here)
 const GAME_PATHS = {
-  'dodge-square': '/prototypes/dodge-square/index.html',
-  'rhythm-tap':   '/prototypes/rhythm-tap/index.html',
+  'dodge-square':  '/prototypes/dodge-square/index.html',
+  'rhythm-tap':    '/prototypes/rhythm-tap/index.html',
+  'jump-climber':  '/prototypes/jump-climber/index.html',
 };
 
 function randomHex(len) {

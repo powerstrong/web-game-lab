@@ -37,24 +37,8 @@
       <p class="section-kicker">GAME SELECT</p>
       <h1 class="stage-title">이번 판은 어떤 게임으로 갈까요?</h1>
 
-      <div class="game-list">
-        <button class="game-card" id="card-dodge-square" data-game="dodge-square" type="button">
-          <span class="game-badge">A</span>
-          <span class="game-text">
-            <strong>네모 피하기</strong>
-            <small>끝까지 버티는 플레이어가 승리합니다</small>
-          </span>
-          <span class="vote-badge" id="badge-dodge-square">0</span>
-        </button>
-
-        <button class="game-card" id="card-rhythm-tap" data-game="rhythm-tap" type="button">
-          <span class="game-badge">B</span>
-          <span class="game-text">
-            <strong>박자 맞추기</strong>
-            <small>리듬과 정확도로 점수를 겨룹니다</small>
-          </span>
-          <span class="vote-badge" id="badge-rhythm-tap">0</span>
-        </button>
+      <div class="game-list" id="game-list">
+        <!-- populated by room.js from GAME_REGISTRY -->
       </div>
 
       <div class="start-box">
@@ -106,6 +90,7 @@
     </div>
   </div>
 
+  <script src="../games/registry.js"></script>
   <script src="config.js"></script>
   <script src="room.js"></script>
 </body>
