@@ -894,6 +894,20 @@ function spawnBoost(platform) {
   });
 }
 
+function spawnEffect(kind, worldX, worldY) {
+  const el = document.createElement("div");
+  el.className = `effect effect--${kind}`;
+  const isLand = kind === "land";
+  const w = isLand ? 120 : 96;
+  const h = isLand ? 48 : 96;
+  const tx = worldX - w / 2;
+  const ty = worldY - state.cameraY - h / 2;
+  el.style.setProperty("--tx", `${tx}px`);
+  el.style.setProperty("--ty", `${ty}px`);
+  worldEl.appendChild(el);
+  setTimeout(() => el.remove(), 420);
+}
+
 function clearWorld() {
   cancelAnimationFrame(state.rafId);
   worldEl.innerHTML = "";
@@ -1000,6 +1014,7 @@ function handleLanding(player, previousY) {
     if (horizontalHit && passedTop) {
       player.y = platform.y - player.height;
       player.vy = settings.normalJump;
+      spawnEffect("jump", player.x + player.width / 2, platform.y);
       return;
     }
   }
@@ -1016,6 +1031,8 @@ function handleBoostPickup(player) {
 
     if (picked) {
       player.vy = settings.boostJump;
+      spawnEffect("boost", boost.x + boost.size / 2, boost.y + boost.size / 2);
+      spawnEffect("pickup", boost.x + boost.size / 2, boost.y);
       setStatus(`${slotLabel(player.slot)} ${BOOST_META[boost.kind].message}!`);
       boost.el.remove();
       return false;
