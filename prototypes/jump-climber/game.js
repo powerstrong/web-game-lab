@@ -92,18 +92,18 @@ const settings = {
   normalJump: -11.8,
   boostJump: -16.8,
   platformGap: 96,
-  platformWidthMin: 92,
+  platformWidthMin: 84,
   platformWidthMax: 150,
   startLineY: 540,
   playerSpawnOffset: 52,
   safePlatformInset: 14,
   difficultyHeightRange: 2600,
-  pathShiftMin: 64,
-  pathShiftMax: 108,
-  pathRequiredShiftMin: 18,
-  pathRequiredShiftMax: 34,
-  platformWidthMinLate: 84,
-  platformWidthMaxLate: 132,
+  pathShiftMin: 180,
+  pathShiftMax: 245,
+  pathRequiredShiftMin: 40,
+  pathRequiredShiftMax: 85,
+  platformWidthMinLate: 74,
+  platformWidthMaxLate: 122,
 };
 
 const PLAYER_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#ec4899", "#14b8a6", "#f97316"];
@@ -317,7 +317,7 @@ function addChatMessage(entry) {
   setTimeout(() => {
     el.classList.add("is-fading");
     setTimeout(() => el.remove(), 650);
-  }, 8000);
+  }, 10000);
 }
 
 function sendChat() {
@@ -1268,7 +1268,7 @@ function updateCamera() {
   if (alivePlayers.length === 0) return;
 
   const lowestVisiblePlayerY = Math.max(...alivePlayers.map((player) => player.y));
-  const target = Math.min(state.cameraY, lowestVisiblePlayerY - 480);
+  const target = Math.min(state.cameraY, lowestVisiblePlayerY - 580);
   state.cameraY += (target - state.cameraY) * 0.16;
 }
 
