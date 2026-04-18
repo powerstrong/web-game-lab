@@ -150,15 +150,16 @@
       <section id="playScreen" class="screen screen--play">
         <header class="panel play-topbar">
           <div class="play-topbar__main">
-            <div>
-              <p class="section-kicker">Live Play</p>
-              <div id="playTitle" class="play-title">
-                <img src="/assets/game_title_jump.png" alt="말랑프렌즈 점프" class="play-title__img" />
+            <div class="play-brand">
+              <img src="/assets/game_title_jump.png" alt="" class="play-brand__icon" />
+              <div class="play-brand__text">
+                <p class="section-kicker">Live Play</p>
+                <h2 id="playTitle" class="play-title">말랑프렌즈 점프</h2>
               </div>
             </div>
 
             <div class="play-actions">
-              <button id="backToSetup" type="button" class="secondary-action">설정으로</button>
+              <button id="backToSetup" type="button" class="secondary-action">설정</button>
               <button id="restart" type="button" class="secondary-action">다시 시작</button>
             </div>
           </div>
@@ -166,21 +167,19 @@
           <div class="hud">
             <div class="hud__group">
               <div class="hud-card" data-hud-slot="0">
-                <span class="hud-card__label">1P Best</span>
-                <strong id="best1">0m</strong>
+                <span class="hud-card__label">1P</span>
+                <strong id="best1" class="hud-card__value">0m</strong>
                 <span id="life1" class="hud-card__meta">준비</span>
               </div>
 
               <div class="hud-card" data-hud-slot="1">
-                <span class="hud-card__label">2P Best</span>
-                <strong id="best2">0m</strong>
+                <span class="hud-card__label">2P</span>
+                <strong id="best2" class="hud-card__value">0m</strong>
                 <span id="life2" class="hud-card__meta">대기</span>
               </div>
             </div>
 
-            <div class="hud__status">
-              <span id="status">캐릭터를 고르고 시작해 보세요.</span>
-            </div>
+            <div id="status" class="hud__status">캐릭터를 고르고 시작해 보세요.</div>
           </div>
         </header>
 

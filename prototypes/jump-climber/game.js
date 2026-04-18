@@ -1268,7 +1268,7 @@ function updateCamera() {
   if (alivePlayers.length === 0) return;
 
   const lowestVisiblePlayerY = Math.max(...alivePlayers.map((player) => player.y));
-  const target = Math.min(state.cameraY, lowestVisiblePlayerY - 320);
+  const target = Math.min(state.cameraY, lowestVisiblePlayerY - 480);
   state.cameraY += (target - state.cameraY) * 0.16;
 }
 
