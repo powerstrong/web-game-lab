@@ -232,9 +232,15 @@ function createCharacterOptionMarkup(character, slot, active) {
 
 function addChatMessage(entry) {
   const color = PLAYER_COLORS[(entry.colorIndex || 0) % PLAYER_COLORS.length];
+  const now = new Date();
+  const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const el = document.createElement("div");
   el.className = "chat-message";
-  el.innerHTML = `<span class="chat-message__name" style="color:${color}">${entry.name}</span>${entry.text}`;
+  el.innerHTML = `
+    <span class="chat-message__name" style="color:${color}">${entry.name}</span>
+    <span class="chat-message__text">${entry.text}</span>
+    <span class="chat-message__time">${timeStr}</span>
+  `;
   chatMessagesEl.appendChild(el);
 
   while (chatMessagesEl.children.length > 8) {
