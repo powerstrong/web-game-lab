@@ -553,7 +553,7 @@ function updateHudFromSnapshot(players) {
 
     hudCards[slot].classList.toggle("is-hidden", !active);
     bestEls[slot].textContent = player ? `${player.bestHeight}m` : "0m";
-    lifeEls[slot].textContent = player ? (player.alive ? `${player.name} 생존` : `${player.name} 탈락`) : "대기";
+    lifeEls[slot].textContent = player ? (player.alive ? "생존" : "탈락") : "대기";
   }
 }
 
@@ -1329,13 +1329,12 @@ function updateHud() {
       continue;
     }
 
-    const characterName = getCharacter(state.setup[slot].characterId).name;
     if (!player) {
-      lifeEls[slot].textContent = `${characterName} 준비`;
+      lifeEls[slot].textContent = "준비";
       continue;
     }
 
-    lifeEls[slot].textContent = player.alive ? `${characterName} 생존` : `${characterName} 탈락`;
+    lifeEls[slot].textContent = player.alive ? "생존" : "탈락";
   }
 }
 
