@@ -42,7 +42,7 @@ window.GAME_REGISTRY = [
   },
   {
     id: 'jump-climber',
-    title: '모찌팡 점프점프',
+    title: '말랑프렌즈 점프',
     description: '세 귀요미 중 하나를 골라 얼굴 커스터마이즈와 2인 점프를 즐겨보세요',
     type: 'DUEL_LIVE',
     recommendedPlayers: '1~2명',

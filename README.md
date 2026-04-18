@@ -33,7 +33,7 @@
 │   ├── _template/
 │   ├── dodge-square/       # SOLO — 반사신경 피하기
 │   ├── rhythm-tap/         # PARTY_ASYNC — 타이밍 경쟁
-│   └── jump-climber/       # DUEL_LIVE — 모찌팡 점프점프
+│   └── jump-climber/       # DUEL_LIVE — 말랑프렌즈 점프
 └── docs/
     ├── prototype-brief.md
     ├── experiment-log.md
@@ -50,7 +50,7 @@
 
 ## 현재 주력 프로토타입
 
-### `jump-climber` / 모찌팡 점프점프
+### `jump-climber` / 말랑프렌즈 점프
 
 - 1P 또는 2P 로컬 동시 플레이
 - 캐릭터 3종 선택
