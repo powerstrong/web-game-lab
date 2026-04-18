@@ -9,7 +9,6 @@ const state = {
   running: false,
   player: { x: 80, y: 120, size: 30, speed: 4.8 },
   enemy: { x: 240, y: 180, size: 30, speed: 1.6 },
-  keys: new Set(),
   startedAt: 0,
   rafId: 0,
 };
@@ -51,10 +50,10 @@ function updatePlayer(bounds) {
   let nextX = state.player.x;
   let nextY = state.player.y;
 
-  if (state.keys.has("ArrowLeft")) nextX -= state.player.speed;
-  if (state.keys.has("ArrowRight")) nextX += state.player.speed;
-  if (state.keys.has("ArrowUp")) nextY -= state.player.speed;
-  if (state.keys.has("ArrowDown")) nextY += state.player.speed;
+  if (InputManager.isHeld('left'))  nextX -= state.player.speed;
+  if (InputManager.isHeld('right')) nextX += state.player.speed;
+  if (InputManager.isHeld('up'))    nextY -= state.player.speed;
+  if (InputManager.isHeld('down'))  nextY += state.player.speed;
 
   state.player.x = clamp(nextX, 0, bounds.width - state.player.size);
   state.player.y = clamp(nextY, 0, bounds.height - state.player.size);
@@ -100,17 +99,6 @@ function startGame() {
   messageEl.textContent = "Survive as long as you can";
   state.rafId = requestAnimationFrame(tick);
 }
-
-window.addEventListener("keydown", (event) => {
-  if (event.key.startsWith("Arrow")) {
-    event.preventDefault();
-    state.keys.add(event.key);
-  }
-});
-
-window.addEventListener("keyup", (event) => {
-  state.keys.delete(event.key);
-});
 
 restartButton.addEventListener("click", startGame);
 

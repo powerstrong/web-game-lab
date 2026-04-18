@@ -75,12 +75,7 @@ function judgeHit() {
   comboEl.textContent = `Combo ${state.combo}`;
 }
 
-window.addEventListener("keydown", (event) => {
-  if (event.code === "Space") {
-    event.preventDefault();
-    judgeHit();
-  }
-});
+InputManager.onTap(judgeHit);
 
 restartButton.addEventListener("click", resetGame);
 
