@@ -84,6 +84,18 @@ body {
   font-weight: 700;
 }
 
+.home-btn {
+  padding: 6px 10px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.home-btn:hover {
+  background: var(--surface);
+}
+
 .room-tools,
 .room-code-block,
 .status-wrap {
@@ -274,6 +286,11 @@ body {
   box-shadow: 0 16px 28px rgba(55, 187, 165, 0.22);
 }
 
+.btn-secondary {
+  background: #edf2ff;
+  color: var(--accent-strong);
+}
+
 .btn-start.voted-start {
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
   box-shadow: 0 16px 28px rgba(75, 107, 255, 0.24);
@@ -404,6 +421,7 @@ body {
 
 .countdown-overlay,
 .disconnect-overlay,
+.exit-modal,
 .scoreboard-overlay {
   position: fixed;
   inset: 0;
@@ -417,6 +435,7 @@ body {
 
 .countdown-overlay.active,
 .disconnect-overlay.active,
+.exit-modal.active,
 .scoreboard-overlay.active {
   display: flex;
 }
@@ -470,6 +489,35 @@ body {
   width: min(100%, 360px);
   padding: 24px;
   text-align: center;
+}
+
+.exit-modal-card {
+  width: min(100%, 360px);
+  padding: 24px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+}
+
+.exit-modal-msg {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.exit-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.exit-modal-actions .btn {
+  width: 100%;
+  margin-top: 0;
 }
 
 .countdown-label,
