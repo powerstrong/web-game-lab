@@ -5,15 +5,27 @@
 
 ## Current Priority
 
-현재 최우선 과제는 `jump-climber`를 단순 솔로 프로토타입에서
-"캐릭터 선택 + 커스터마이즈 + 2인 협동/경쟁 플레이"가 가능한
-대표 게임으로 끌어올리는 것이다.
+현재 최우선 과제는 `jump-climber`를
+`말랑프렌즈 점프`라는 대표 게임으로 계속 다듬는 것이다.
 
-상세 계획은 아래 문서를 기준으로 진행한다.
+상세 계획과 현재 상태는 아래 문서를 기준으로 진행한다.
 
 - [jump-climber-expansion-plan.md](./jump-climber-expansion-plan.md)
 
-## Why This Comes First
+## Current Snapshot
+
+지금까지 반영된 상태:
+
+- 앱 전체 브랜드를 `말랑프렌즈 아케이드`로 변경
+- `말랑프렌즈 점프`에 캐릭터 3종 스프라이트 연결
+- 싱글플레이 / 로컬 2P 플레이 가능
+- 방 플레이에서는 2개 기기가 같은 맵에 들어가는 shared-map 멀티플레이 프로토타입 동작
+- 얼굴 업로드, 얼굴 프리뷰, 얼굴 영역 크기 조절, 사진 확대, 캐릭터 크기 조절 가능
+- 설정 화면 / 실제 게임 화면 분리 완료
+- 배경 / 발판 / 부스트 / 장식 기물 아트 연결 완료
+- 일부 플랫폼의 느린 이동 / 회전 적용
+
+## Why This Still Comes First
 
 - 이미 플레이 가능한 점프 프로토타입이 있어 확장 기반이 있다.
 - 캐릭터 아트, 입력 체계, 점수 표시, 멀티플레이 룸 흐름을 한 번에 검증할 수 있다.
@@ -22,6 +34,50 @@
   - 모바일 입력 추상화
   - 1P / 2P 기록 표시
   - 듀얼 플레이 상태 관리
+  - shared-map 멀티플레이 기초
+
+## Most Important Next Work
+
+### 1. Multiplayer Smoothness
+
+현재 가장 눈에 띄는 품질 이슈는 멀티플레이에서의 렉과 깜빡임이다.
+
+다음 단계:
+
+- 로컬 플레이어 예측을 더 정교하게 확장
+- 원격 플레이어 / 플랫폼 스냅샷 보간 강화
+- DOM 재생성 최소화
+- 필요 시 스냅샷 버퍼링 지연을 소폭 추가
+
+### 2. Effects and Feel
+
+점프 감각을 더 살릴 필요가 있다.
+
+다음 단계:
+
+- 점프 착지/부스트 이펙트
+- 가벼운 효과음
+- 부스트 획득 시 시각 피드백 강화
+
+### 3. Art Fit and Visual Tuning
+
+새 에셋은 연결됐지만 아직 시각 튜닝 여지가 있다.
+
+다음 단계:
+
+- 플랫폼별 크기감 / 충돌감 조정
+- 배경 대비 캐릭터 가독성 확인
+- 얼굴 합성 위치를 캐릭터별로 더 정교하게 보정
+
+### 4. Deployment Cleanup
+
+현재 배포는 정적 사이트와 방 API 워커가 분리되어 있다.
+
+다음 단계:
+
+- `game-lobby.powerstrong.workers.dev` 의존을 줄일지 유지할지 결정
+- 가능하면 메인 사이트 origin으로 API 통합 검토
+- Cloudflare 배포 흐름 문서화
 
 ## Project-Wide Goals
 
@@ -64,42 +120,39 @@
 
 ## Near-Term Milestones
 
-### Milestone A. Jump Climber Planning and UX Spec
+### Milestone A. Multiplayer Smoothing Pass
 
-- 요구사항 문서화
-- 화면 구성 스케치 수준 정의
-- 아트 에셋 요청 스펙 정리
+- 보간 개선
+- 로컬 예측 개선
+- 깜빡임 원인 축소
 
-### Milestone B. Character and Avatar Pipeline
+### Milestone B. Effects Pass
 
-- 3종 캐릭터 선택
-- 사용자 얼굴 업로드
-- 얼굴 프리뷰와 합성 규칙
+- 점프 / 착지 / 부스트 이펙트
+- 기본 효과음
 
-### Milestone C. Two-Player Gameplay Upgrade
+### Milestone C. Visual Polish Pass
 
-- 1P / 2P 동시 플레이
-- 카메라 기준 규칙
-- 개별 최고 높이 기록
-- 1명 탈락 후 솔로 지속
+- 플랫폼 / 배경 / 캐릭터 크기 미세 조정
+- 얼굴 합성 가이드 보정
 
-### Milestone D. Mobile Control Upgrade
+### Milestone D. Deployment Stabilization
 
-- 맵 전체 좌/우 터치 분할
-- 기존 하단 버튼 제거 또는 폴백화
-- 멀티터치 시나리오 검토
+- 방 API 구조 정리
+- 캐시 / 서비스워커 / 배포 체크리스트 정리
 
 ## Documentation Rules For This Phase
 
 - 새 기능 요구사항은 먼저 `docs/`에 기록한다.
 - 구현 순서가 바뀌면 계획 문서를 먼저 업데이트한다.
 - 에셋 요청이 필요한 기능은 파일명과 스펙을 문서에 함께 남긴다.
+- 멀티플레이 구조를 바꾸면 room flow와 deployment notes를 함께 갱신한다.
 
 ## Out Of Scope For This Step
 
 이번 단계에서 바로 포함하지 않는 항목:
 
-- 네트워크 기반 원격 멀티플레이
 - 계정 저장 / 클라우드 프로필
 - 고급 코스메틱 상점 시스템
 - 정식 PWA 설치 흐름 완성
+- 완전한 네트워크 rollback/resimulation
