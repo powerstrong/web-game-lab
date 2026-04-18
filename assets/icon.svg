@@ -1,5 +1,62 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#4b6bff"/>
-  <text x="256" y="300" text-anchor="middle" font-family="Arial Black, sans-serif"
-        font-weight="900" font-size="200" fill="#ffffff">텐텐</text>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffe7a8" />
+      <stop offset="48%" stop-color="#ff9fc2" />
+      <stop offset="100%" stop-color="#7ed8ff" />
+    </linearGradient>
+    <linearGradient id="card" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fffefb" />
+      <stop offset="100%" stop-color="#fff4fb" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#b45e84" flood-opacity="0.22" />
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="120" fill="url(#bg)" />
+  <circle cx="116" cy="110" r="56" fill="#ffffff" opacity="0.34" />
+  <circle cx="404" cy="122" r="42" fill="#ffffff" opacity="0.24" />
+  <circle cx="426" cy="392" r="54" fill="#ffffff" opacity="0.24" />
+
+  <g filter="url(#shadow)">
+    <rect x="74" y="86" width="364" height="340" rx="86" fill="url(#card)" />
+  </g>
+
+  <g transform="translate(92 98)">
+    <circle cx="84" cy="104" r="62" fill="#fff7fb" stroke="#764956" stroke-width="10" />
+    <ellipse cx="58" cy="50" rx="22" ry="42" fill="#fff7fb" stroke="#764956" stroke-width="10" transform="rotate(-22 58 50)" />
+    <ellipse cx="112" cy="48" rx="22" ry="42" fill="#fff7fb" stroke="#764956" stroke-width="10" transform="rotate(18 112 48)" />
+    <ellipse cx="58" cy="56" rx="10" ry="22" fill="#ff9ab5" transform="rotate(-22 58 56)" />
+    <ellipse cx="112" cy="54" rx="10" ry="22" fill="#ff9ab5" transform="rotate(18 112 54)" />
+    <circle cx="66" cy="110" r="12" fill="#3c2028" />
+    <circle cx="104" cy="110" r="12" fill="#3c2028" />
+    <circle cx="86" cy="128" r="8" fill="#ff625f" />
+    <circle cx="44" cy="126" r="18" fill="#ffa4bf" opacity="0.82" />
+    <circle cx="128" cy="126" r="18" fill="#ffa4bf" opacity="0.82" />
+    <path d="M76 144c7 9 19 9 26 0" fill="none" stroke="#3c2028" stroke-width="8" stroke-linecap="round" />
+
+    <circle cx="224" cy="118" r="60" fill="#ffe4bc" stroke="#7b5846" stroke-width="10" />
+    <circle cx="196" cy="74" r="20" fill="#ffe4bc" stroke="#7b5846" stroke-width="10" />
+    <circle cx="254" cy="72" r="20" fill="#ffe4bc" stroke="#7b5846" stroke-width="10" />
+    <ellipse cx="224" cy="132" rx="44" ry="34" fill="#fff4df" />
+    <circle cx="204" cy="112" r="10" fill="#3b2419" />
+    <circle cx="244" cy="112" r="10" fill="#3b2419" />
+    <circle cx="224" cy="126" r="7" fill="#ff7d73" />
+    <circle cx="184" cy="126" r="16" fill="#ffa9b8" opacity="0.82" />
+    <circle cx="264" cy="126" r="16" fill="#ffa9b8" opacity="0.82" />
+    <path d="M212 140c7 8 17 8 24 0" fill="none" stroke="#3b2419" stroke-width="7" stroke-linecap="round" />
+
+    <circle cx="152" cy="236" r="64" fill="#fff0a0" stroke="#f09a44" stroke-width="10" />
+    <path d="M142 160c7-14 16-24 28-32" fill="none" stroke="#ffb357" stroke-width="12" stroke-linecap="round" />
+    <path d="M166 160c11-14 18-22 30-26" fill="none" stroke="#ffb357" stroke-width="12" stroke-linecap="round" />
+    <circle cx="132" cy="232" r="12" fill="#3c2416" />
+    <circle cx="176" cy="232" r="12" fill="#3c2416" />
+    <ellipse cx="154" cy="250" rx="20" ry="15" fill="#ffae45" stroke="#db7c19" stroke-width="8" />
+    <circle cx="106" cy="250" r="18" fill="#ffb5bc" opacity="0.82" />
+    <circle cx="202" cy="250" r="18" fill="#ffb5bc" opacity="0.82" />
+  </g>
+
+  <text x="256" y="460" text-anchor="middle" font-family="'Trebuchet MS', 'Noto Sans KR', sans-serif"
+        font-size="48" font-weight="900" fill="#6f4454">MFA</text>
 </svg>

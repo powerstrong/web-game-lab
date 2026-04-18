@@ -1,9 +1,13 @@
 const arena = document.getElementById("arena");
 const worldEl = document.getElementById("world");
+const setupScreen = document.getElementById("setupScreen");
+const playScreen = document.getElementById("playScreen");
 const statusEl = document.getElementById("status");
 const setupHintEl = document.getElementById("setupHint");
 const startButton = document.getElementById("startGame");
 const restartButton = document.getElementById("restart");
+const backToSetupButton = document.getElementById("backToSetup");
+const playTitleEl = document.getElementById("playTitle");
 const restartFromResultsButton = document.getElementById("restartFromResults");
 const exitAfterResultsButton = document.getElementById("exitAfterResults");
 const playerCountButtons = Array.from(document.querySelectorAll("[data-player-count]"));
@@ -208,6 +212,13 @@ function setStatus(message) {
   statusEl.textContent = message;
 }
 
+function showScreen(screen) {
+  const isSetup = screen === "setup";
+  setupScreen.classList.toggle("is-active", isSetup);
+  playScreen.classList.toggle("is-active", !isSetup);
+  window.scrollTo(0, 0);
+}
+
 function buildRoomWebSocketUrl(code) {
   const base = (window.WORKER_URL || window.location.origin).replace(/^http/, "ws");
   return `${base}/api/rooms/${encodeURIComponent(code)}`;
@@ -218,6 +229,19 @@ function getPoseFromStateLike(player) {
   if (player.vx < -0.35) return "jump_left";
   if (player.vx > 0.35) return "jump_right";
   return "jump_neutral";
+}
+
+function getArenaScale() {
+  if (!arena?.clientWidth) return 1;
+  return Math.min(1, arena.clientWidth / settings.worldWidth);
+}
+
+function applyArenaScale() {
+  const scale = getArenaScale();
+  worldEl.style.width = `${settings.worldWidth}px`;
+  worldEl.style.height = `${Math.ceil(arena.clientHeight / scale)}px`;
+  worldEl.style.transform = `scale(${scale})`;
+  worldEl.style.transformOrigin = "top left";
 }
 
 function clearNetworkWorld() {
@@ -235,6 +259,11 @@ function stopNetworkInputLoop() {
     clearInterval(state.network.inputIntervalId);
     state.network.inputIntervalId = 0;
   }
+}
+
+function stopSoloGame() {
+  state.running = false;
+  cancelAnimationFrame(state.rafId);
 }
 
 function exitSession() {
@@ -347,6 +376,7 @@ function syncEntityMap(map, items, createFn, updateFn) {
 }
 
 function renderNetworkSnapshot(snapshot) {
+  applyArenaScale();
   state.network.snapshot = snapshot;
 
   syncEntityMap(
@@ -394,9 +424,13 @@ function renderNetworkSnapshot(snapshot) {
     },
     (entry, player) => {
       const pose = getPoseFromStateLike(player);
+      const isLocalPlayer = Boolean(gameBoot?.playerId) && player.id === gameBoot.playerId;
+      const setupForRender = isLocalPlayer
+        ? state.setup[0]
+        : { ...createDefaultSetup(player.characterId), characterId: player.characterId };
       if (entry.characterId !== player.characterId || entry.pose !== pose) {
         entry.el.innerHTML = createAvatarMarkup(
-          { ...createDefaultSetup(player.characterId), characterId: player.characterId },
+          setupForRender,
           `${player.slot + 1}P`,
           false,
           pose
@@ -405,6 +439,10 @@ function renderNetworkSnapshot(snapshot) {
         entry.spriteEl = entry.el.querySelector(".avatar__sprite");
         entry.characterId = player.characterId;
         entry.pose = pose;
+      } else if (isLocalPlayer) {
+        entry.el.innerHTML = createAvatarMarkup(setupForRender, `${player.slot + 1}P`, false, pose);
+        entry.avatarEl = entry.el.querySelector(".avatar");
+        entry.spriteEl = entry.el.querySelector(".avatar__sprite");
       }
 
       entry.el.classList.toggle("is-eliminated", !player.alive);
@@ -433,16 +471,21 @@ function sendNetworkInput(direction) {
   state.network.ws.send(JSON.stringify({ type: "player_input", direction }));
 }
 
+function syncNetworkInput(force = false) {
+  if (!isRoomSession) return;
+  const direction = getPlayerDirection(0);
+  if (!force && direction === state.network.lastSentDirection) return;
+  state.network.lastSentDirection = direction;
+  sendNetworkInput(direction);
+}
+
 function startNetworkInputLoop() {
   stopNetworkInputLoop();
   state.network.lastSentDirection = null;
+  syncNetworkInput(true);
   state.network.inputIntervalId = window.setInterval(() => {
-    if (!state.network.ws || state.network.ws.readyState !== WebSocket.OPEN) return;
-    const direction = getPlayerDirection(0);
-    if (direction === state.network.lastSentDirection) return;
-    state.network.lastSentDirection = direction;
-    sendNetworkInput(direction);
-  }, 50);
+    syncNetworkInput(true);
+  }, 180);
 }
 
 function handleNetworkMessage(msg) {
@@ -520,8 +563,8 @@ function renderSetupUI() {
     const setup = state.setup[slot];
     const character = getCharacter(setup.characterId);
     const isActiveSlot = slot < state.playerCount;
-    const slidersEnabled = Boolean(setup.faceEnabled && setup.faceUrl) && !isRoomSession;
-    const faceControlsLocked = isRoomSession;
+    const slidersEnabled = Boolean(setup.faceEnabled && setup.faceUrl);
+    const faceControlsLocked = false;
 
     ref.card.classList.toggle("is-hidden", !isActiveSlot);
     ref.name.textContent = character.name;
@@ -529,7 +572,7 @@ function renderSetupUI() {
     ref.options.innerHTML = CHARACTER_LIST.map((item) =>
       createCharacterOptionMarkup(item, slot, item.id === setup.characterId)
     ).join("");
-    ref.faceEnabled.checked = faceControlsLocked ? false : setup.faceEnabled;
+    ref.faceEnabled.checked = setup.faceEnabled;
     ref.faceScale.value = Math.round(setup.faceTransform.scale * 100);
     ref.spriteScale.value = Math.round((setup.spriteScale || 1) * 100);
     ref.faceX.value = setup.faceTransform.x;
@@ -540,7 +583,7 @@ function renderSetupUI() {
     ref.spriteScale.disabled = faceControlsLocked;
     ref.faceX.disabled = !slidersEnabled;
     ref.faceY.disabled = !slidersEnabled;
-    ref.faceReset.disabled = faceControlsLocked || (!setup.faceEnabled && !setup.faceUrl);
+    ref.faceReset.disabled = !setup.faceEnabled && !setup.faceUrl;
 
     ref.options.querySelectorAll(".character-option").forEach((option) => {
       option.addEventListener("click", () => {
@@ -853,6 +896,7 @@ function updatePlayerVisualState(player) {
 }
 
 function render() {
+  applyArenaScale();
   state.platforms.forEach((platform) => {
     platform.el.style.transform = `translate(${platform.x}px, ${platform.y - state.cameraY}px)`;
   });
@@ -907,12 +951,14 @@ function loop() {
 function startGame() {
   if (isRoomSession) {
     hideResultsOverlay();
+    showScreen("play");
     connectNetworkGame();
     return;
   }
 
   resetWorld();
   hideResultsOverlay();
+  showScreen("play");
 
   state.cameraY = 0;
   state.running = true;
@@ -950,19 +996,17 @@ function endGame() {
 }
 
 function configureSessionMode() {
+  playTitleEl.textContent = "말랑프렌즈 점프";
   if (!isRoomSession) {
     exitAfterResultsButton.textContent = "허브로 가기";
+    backToSetupButton.textContent = "설정으로";
     return;
   }
 
   state.playerCount = 1;
-  state.setup[0].faceEnabled = false;
-  state.setup[0].faceUrl = "";
-  state.setup[1].faceEnabled = false;
-  state.setup[1].faceUrl = "";
   setupHintEl.innerHTML =
     "방 플레이에서는 <strong>각 기기마다 캐릭터 1명</strong>을 맡아 같은 맵에서 동시에 점프합니다. " +
-    "<strong>A / D</strong> 또는 화면 좌우 터치로 움직이고, 캐릭터를 고른 뒤 방 합류를 누르세요.";
+    "<strong>A / D</strong> 또는 화면 좌우 터치로 움직이고, 캐릭터와 얼굴을 고른 뒤 방 합류를 누르세요.";
 
   const twoPlayerButton = playerCountButtons.find((button) => Number(button.dataset.playerCount) === 2);
   if (twoPlayerButton) {
@@ -972,6 +1016,7 @@ function configureSessionMode() {
 
   startButton.textContent = "방 합류";
   restartButton.textContent = "대기실로 복귀";
+  backToSetupButton.textContent = "대기실로";
 }
 
 function updatePointerDirection(slot, clientX) {
@@ -1000,6 +1045,8 @@ function handlePointerDown(event) {
   if (arena.setPointerCapture) {
     arena.setPointerCapture(event.pointerId);
   }
+
+  syncNetworkInput();
 }
 
 function handlePointerMove(event) {
@@ -1007,6 +1054,7 @@ function handlePointerMove(event) {
 
   event.preventDefault();
   updatePointerDirection(state.touchAssignments.get(event.pointerId), event.clientX);
+  syncNetworkInput();
 }
 
 function clearPointer(event) {
@@ -1019,6 +1067,8 @@ function clearPointer(event) {
   if (arena.releasePointerCapture) {
     arena.releasePointerCapture(event.pointerId);
   }
+
+  syncNetworkInput();
 }
 
 function bindSetupEvents() {
@@ -1090,6 +1140,16 @@ function bindSetupEvents() {
     }
     startGame();
   });
+  backToSetupButton.addEventListener("click", () => {
+    if (isRoomSession) {
+      exitSession();
+      return;
+    }
+    hideResultsOverlay();
+    stopSoloGame();
+    showScreen("setup");
+    setStatus("설정을 바꾼 뒤 다시 시작해 보세요.");
+  });
   restartFromResultsButton.addEventListener("click", () => {
     if (isRoomSession) {
       exitSession();
@@ -1113,26 +1173,31 @@ function bindKeyboardEvents() {
 
     event.preventDefault();
     state.keys.add(event.key);
+    syncNetworkInput();
   });
 
   window.addEventListener("keyup", (event) => {
     state.keys.delete(event.key);
+    syncNetworkInput();
   });
 
   window.addEventListener("blur", () => {
     state.keys.clear();
     state.touchAssignments.clear();
     state.playerTouchDirections = [0, 0];
+    syncNetworkInput(true);
   });
 }
 
 configureSessionMode();
 bindSetupEvents();
 bindKeyboardEvents();
+window.addEventListener("resize", applyArenaScale);
 renderSetupUI();
 updateHud();
-if (!isRoomSession) {
-  startGame();
-} else {
-  setStatus("캐릭터를 고르고 방 합류를 누르면 같은 맵에서 함께 시작합니다.");
-}
+showScreen("setup");
+setStatus(
+  isRoomSession
+    ? "캐릭터를 고르고 방 합류를 누르면 같은 맵에서 함께 시작합니다."
+    : "캐릭터를 고르고 게임 시작을 누르면 바로 플레이 화면으로 넘어갑니다."
+);

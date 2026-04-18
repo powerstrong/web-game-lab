@@ -31,7 +31,7 @@ const JUMP_GAME_SETTINGS = {
   platformWidthMin: 92,
   platformWidthMax: 150,
   startLineY: 540,
-  tickMs: 33,
+  tickMs: 16,
 };
 
 const PLATFORM_KINDS = ['leaf', 'cloud', 'cake'];
