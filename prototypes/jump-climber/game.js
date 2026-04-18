@@ -96,6 +96,14 @@ const settings = {
   platformWidthMax: 150,
   startLineY: 540,
   playerSpawnOffset: 52,
+  safePlatformInset: 14,
+  difficultyHeightRange: 2600,
+  pathShiftMin: 64,
+  pathShiftMax: 108,
+  pathRequiredShiftMin: 18,
+  pathRequiredShiftMax: 34,
+  platformWidthMinLate: 84,
+  platformWidthMaxLate: 132,
 };
 
 const PLAYER_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#ec4899", "#14b8a6", "#f97316"];
@@ -325,6 +333,31 @@ function createPlatformMotion() {
     phase: 0,
     rotateAmplitude: 0,
   };
+}
+
+function lerp(min, max, t) {
+  return min + (max - min) * t;
+}
+
+function getDifficultyProgress(y) {
+  const climbed = Math.max(0, settings.startLineY - y);
+  return clamp(climbed / settings.difficultyHeightRange, 0, 1);
+}
+
+function getPlatformProfile(y) {
+  const progress = getDifficultyProgress(y);
+  return {
+    progress,
+    widthMin: lerp(settings.platformWidthMin, settings.platformWidthMinLate, progress),
+    widthMax: lerp(settings.platformWidthMax, settings.platformWidthMaxLate, progress),
+    pathShift: lerp(settings.pathShiftMin, settings.pathShiftMax, progress),
+    pathRequiredShift: lerp(settings.pathRequiredShiftMin, settings.pathRequiredShiftMax, progress),
+  };
+}
+
+function getTopmostPlatform() {
+  if (state.platforms.length === 0) return null;
+  return state.platforms.reduce((top, platform) => (platform.y < top.y ? platform : top), state.platforms[0]);
 }
 
 function getArenaScale() {
@@ -853,11 +886,28 @@ function getPlayerDirection(slot) {
   return clamp(getKeyboardDirection(slot) + state.playerTouchDirections[slot], -1, 1);
 }
 
-function createPlatform(y, isBase = false) {
+function createPlatform(y, isBase = false, anchorPlatform = null) {
+  const profile = getPlatformProfile(y);
   const width = isBase
     ? 200
-    : Math.round(random(settings.platformWidthMin, settings.platformWidthMax));
-  const x = isBase ? (settings.worldWidth - width) / 2 : random(10, settings.worldWidth - width - 10);
+    : Math.round(random(profile.widthMin, profile.widthMax));
+
+  let x;
+  if (isBase) {
+    x = (settings.worldWidth - width) / 2;
+  } else {
+    const reference = anchorPlatform || getTopmostPlatform();
+    const referenceCenter = reference ? reference.x + reference.width / 2 : settings.worldWidth / 2;
+    const centerBias = (settings.worldWidth / 2 - referenceCenter) * 0.12;
+    const direction = Math.random() < 0.5 ? -1 : 1;
+    const signedShift = direction * random(profile.pathRequiredShift, profile.pathShift);
+    const nextCenter = clamp(
+      referenceCenter + centerBias + signedShift,
+      width / 2 + settings.safePlatformInset,
+      settings.worldWidth - width / 2 - settings.safePlatformInset
+    );
+    x = nextCenter - width / 2;
+  }
   const kind = isBase ? "base" : PLATFORM_KINDS[Math.floor(random(0, PLATFORM_KINDS.length))];
   const motion = isBase
     ? { type: "static", amplitude: 0, speed: 0, phase: 0, rotateAmplitude: 0 }
@@ -935,9 +985,12 @@ function resetWorld() {
 
   const base = createPlatform(settings.startLineY, true);
   state.platforms.push(base);
+  let lastPlatform = base;
 
   for (let i = 1; i < 32; i += 1) {
-    state.platforms.push(createPlatform(settings.startLineY - i * settings.platformGap));
+    const platform = createPlatform(settings.startLineY - i * settings.platformGap, false, lastPlatform);
+    state.platforms.push(platform);
+    lastPlatform = platform;
   }
 }
 
@@ -982,8 +1035,9 @@ function updatePlatformMotionLocal() {
 
 function ensurePlatformsAbove() {
   while (Math.min(...state.platforms.map((platform) => platform.y)) > state.cameraY - 1500) {
-    const newTop = Math.min(...state.platforms.map((platform) => platform.y)) - settings.platformGap;
-    state.platforms.push(createPlatform(newTop));
+    const topmost = getTopmostPlatform();
+    const newTop = topmost.y - settings.platformGap;
+    state.platforms.push(createPlatform(newTop, false, topmost));
   }
 
   const cleanupLimit = state.cameraY + arena.clientHeight + 180;

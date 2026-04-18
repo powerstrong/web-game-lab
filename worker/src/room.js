@@ -37,6 +37,14 @@ const JUMP_GAME_SETTINGS = {
   startLineY: 540,
   playerSpawnOffset: 52,
   tickMs: 16,
+  safePlatformInset: 14,
+  difficultyHeightRange: 2600,
+  pathShiftMin: 64,
+  pathShiftMax: 108,
+  pathRequiredShiftMin: 18,
+  pathRequiredShiftMax: 34,
+  platformWidthMinLate: 84,
+  platformWidthMaxLate: 132,
 };
 
 const PLATFORM_KINDS = ['leaf', 'cloud', 'cake'];
@@ -69,6 +77,26 @@ function createPlatformMotion() {
     speed: 0,
     phase: 0,
     rotateAmplitude: 0,
+  };
+}
+
+function lerp(min, max, t) {
+  return min + (max - min) * t;
+}
+
+function getDifficultyProgress(y) {
+  const climbed = Math.max(0, JUMP_GAME_SETTINGS.startLineY - y);
+  return clamp(climbed / JUMP_GAME_SETTINGS.difficultyHeightRange, 0, 1);
+}
+
+function getPlatformProfile(y) {
+  const progress = getDifficultyProgress(y);
+  return {
+    progress,
+    widthMin: lerp(JUMP_GAME_SETTINGS.platformWidthMin, JUMP_GAME_SETTINGS.platformWidthMinLate, progress),
+    widthMax: lerp(JUMP_GAME_SETTINGS.platformWidthMax, JUMP_GAME_SETTINGS.platformWidthMaxLate, progress),
+    pathShift: lerp(JUMP_GAME_SETTINGS.pathShiftMin, JUMP_GAME_SETTINGS.pathShiftMax, progress),
+    pathRequiredShift: lerp(JUMP_GAME_SETTINGS.pathRequiredShiftMin, JUMP_GAME_SETTINGS.pathRequiredShiftMax, progress),
   };
 }
 
@@ -152,13 +180,36 @@ export class GameRoom {
     };
   }
 
-  _createJumpPlatform(game, y, isBase = false) {
+  _getTopmostJumpPlatform() {
+    if (!this.jumpGame || this.jumpGame.platforms.length === 0) return null;
+    return this.jumpGame.platforms.reduce(
+      (top, platform) => (platform.y < top.y ? platform : top),
+      this.jumpGame.platforms[0]
+    );
+  }
+
+  _createJumpPlatform(game, y, isBase = false, anchorPlatform = null) {
+    const profile = getPlatformProfile(y);
     const width = isBase
       ? 200
-      : Math.round(Math.random() * (JUMP_GAME_SETTINGS.platformWidthMax - JUMP_GAME_SETTINGS.platformWidthMin) + JUMP_GAME_SETTINGS.platformWidthMin);
-    const x = isBase
-      ? (JUMP_GAME_SETTINGS.worldWidth - width) / 2
-      : Math.random() * (JUMP_GAME_SETTINGS.worldWidth - width - 20) + 10;
+      : Math.round(randomBetween(profile.widthMin, profile.widthMax));
+
+    let x;
+    if (isBase) {
+      x = (JUMP_GAME_SETTINGS.worldWidth - width) / 2;
+    } else {
+      const reference = anchorPlatform || this._getTopmostJumpPlatform();
+      const referenceCenter = reference ? reference.x + reference.width / 2 : JUMP_GAME_SETTINGS.worldWidth / 2;
+      const centerBias = (JUMP_GAME_SETTINGS.worldWidth / 2 - referenceCenter) * 0.12;
+      const direction = Math.random() < 0.5 ? -1 : 1;
+      const signedShift = direction * randomBetween(profile.pathRequiredShift, profile.pathShift);
+      const nextCenter = clamp(
+        referenceCenter + centerBias + signedShift,
+        width / 2 + JUMP_GAME_SETTINGS.safePlatformInset,
+        JUMP_GAME_SETTINGS.worldWidth - width / 2 - JUMP_GAME_SETTINGS.safePlatformInset
+      );
+      x = nextCenter - width / 2;
+    }
     const kind = isBase ? 'base' : PLATFORM_KINDS[Math.floor(Math.random() * PLATFORM_KINDS.length)];
     const motion = isBase
       ? { type: 'static', amplitude: 0, speed: 0, phase: 0, rotateAmplitude: 0 }
@@ -242,11 +293,17 @@ export class GameRoom {
 
     const base = this._createJumpPlatform(this.jumpGame, JUMP_GAME_SETTINGS.startLineY, true);
     this.jumpGame.platforms.push(base);
+    let lastPlatform = base;
 
     for (let i = 1; i < 32; i += 1) {
-      this.jumpGame.platforms.push(
-        this._createJumpPlatform(this.jumpGame, JUMP_GAME_SETTINGS.startLineY - i * JUMP_GAME_SETTINGS.platformGap)
+      const platform = this._createJumpPlatform(
+        this.jumpGame,
+        JUMP_GAME_SETTINGS.startLineY - i * JUMP_GAME_SETTINGS.platformGap,
+        false,
+        lastPlatform
       );
+      this.jumpGame.platforms.push(platform);
+      lastPlatform = platform;
     }
   }
 
@@ -306,9 +363,9 @@ export class GameRoom {
     if (!this.jumpGame) return;
 
     while (Math.min(...this.jumpGame.platforms.map((platform) => platform.y)) > this.jumpGame.cameraY - 1500) {
-      const newTop =
-        Math.min(...this.jumpGame.platforms.map((platform) => platform.y)) - JUMP_GAME_SETTINGS.platformGap;
-      this.jumpGame.platforms.push(this._createJumpPlatform(this.jumpGame, newTop));
+      const topmost = this._getTopmostJumpPlatform();
+      const newTop = topmost.y - JUMP_GAME_SETTINGS.platformGap;
+      this.jumpGame.platforms.push(this._createJumpPlatform(this.jumpGame, newTop, false, topmost));
     }
 
     const cleanupLimit = this.jumpGame.cameraY + JUMP_GAME_SETTINGS.arenaHeight + 180;
