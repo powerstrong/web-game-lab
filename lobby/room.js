@@ -12,8 +12,13 @@ const PLAYER_COLORS = [
 
 // Built from games/registry.js (loaded before this script via room.html)
 const GAME_META = Object.fromEntries(
-  (window.GAME_REGISTRY || []).map(g => [g.id, { label: g.title, icon: g.icon, path: g.path }])
+  (window.GAME_REGISTRY || []).map(g => [g.id, { label: g.title, icon: g.icon, path: g.path, type: g.type }])
 );
+const GAME_TYPE_LABELS = {
+  SOLO: '솔로',
+  PARTY_ASYNC: '파티',
+  DUEL_LIVE: '대전',
+};
 
 const MAX_RECONNECT = 3;
 const RECONNECT_DELAY_MS = 2000;
@@ -36,6 +41,7 @@ function renderGameList() {
   if (!list) return;
   list.innerHTML = '';
   Object.entries(GAME_META).forEach(([id, meta]) => {
+    const typeLabel = GAME_TYPE_LABELS[meta.type] || meta.type;
     const btn = document.createElement('button');
     btn.className = 'game-card';
     btn.id = `card-${id}`;
@@ -43,7 +49,7 @@ function renderGameList() {
     btn.type = 'button';
     btn.innerHTML =
       `<span class="game-badge">${meta.icon}</span>` +
-      `<span class="game-text"><strong>${meta.label}</strong></span>` +
+      `<span class="game-text"><strong>${meta.label}<span class="game-type-badge">${typeLabel}</span></strong></span>` +
       `<span class="vote-badge" id="badge-${id}">0</span>`;
     list.appendChild(btn);
   });

@@ -214,6 +214,17 @@ body {
   font-size: 1.08rem;
 }
 
+.game-type-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(75, 107, 255, 0.1);
+  color: #2f51f5;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
 .game-text small {
   color: var(--muted);
   font-size: 0.92rem;
