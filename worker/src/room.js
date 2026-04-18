@@ -186,9 +186,9 @@ export class GameRoom {
     const kind = Math.random() < 0.5 ? 'rocket' : 'star';
     game.boosts.push({
       id: `boost-${game.nextBoostId++}`,
-      x: platform.x + platform.width / 2 - 14,
-      y: platform.y - 38,
-      size: 28,
+      x: platform.x + platform.width / 2 - 30,
+      y: platform.y - 68,
+      size: 60,
       kind,
     });
   }
@@ -256,7 +256,7 @@ export class GameRoom {
     return {
       type: 'jump_state',
       running: this.jumpGame.running,
-      waitingFor: Math.max(0, this.jumpGame.expectedPlayers - this._getGameSessions('jump-climber').length),
+      waitingFor: Math.max(0, this.jumpGame.expectedPlayers - this._getGameSessions('jump-climber').filter(({ player }) => !player.isSpectator).length),
       expectedPlayers: this.jumpGame.expectedPlayers,
       cameraY: this.jumpGame.cameraY,
       players: this.jumpGame.roster.map(({ id }) => ({ ...this.jumpGame.players[id] })),
@@ -437,20 +437,36 @@ export class GameRoom {
   async _handleJoinGame(ws, msg) {
     const currentGame = (await this.state.storage.get('currentGame')) || null;
     const phase = (await this.state.storage.get('phase')) || 'lobby';
-    const roster = ((await this.state.storage.get('gameRoster')) || []).slice(0, 2);
+    const fullRoster = (await this.state.storage.get('gameRoster')) || [];
+    const playerRoster = fullRoster.slice(0, 2);
 
     if (currentGame !== 'jump-climber' || msg.gameId !== 'jump-climber' || phase !== 'playing') {
       ws.send(JSON.stringify({ type: 'error', message: '지금은 말랑프렌즈 점프 실시간 방에 합류할 수 없습니다.' }));
       return;
     }
 
-    const rosterPlayer = roster.find((player) => player.id === msg.playerId) || null;
+    const rosterPlayer = fullRoster.find((p) => p.id === msg.playerId) || null;
     if (!rosterPlayer) {
       ws.send(JSON.stringify({ type: 'error', message: '방 플레이어 정보가 맞지 않습니다. 대기실에서 다시 시작해 주세요.' }));
       return;
     }
 
-    const game = this._ensureJumpGame(roster);
+    const isSpectator = !playerRoster.some((p) => p.id === msg.playerId);
+
+    if (isSpectator) {
+      ws.serializeAttachment({
+        ...rosterPlayer,
+        role: 'game',
+        gameId: 'jump-climber',
+        isSpectator: true,
+      });
+      ws.send(JSON.stringify({ type: 'jump_joined', role: 'spectator' }));
+      const snapshot = this._buildJumpSnapshot();
+      if (snapshot) ws.send(JSON.stringify(snapshot));
+      return;
+    }
+
+    const game = this._ensureJumpGame(playerRoster);
     const player = game.players[rosterPlayer.id];
     player.connected = true;
     player.inputDirection = 0;
@@ -462,9 +478,14 @@ export class GameRoom {
       gameId: 'jump-climber',
       slot: player.slot,
       characterId: player.characterId,
+      isSpectator: false,
     });
 
-    if (this._getGameSessions('jump-climber').length >= game.expectedPlayers && !game.running) {
+    ws.send(JSON.stringify({ type: 'jump_joined', role: 'player', slot: player.slot }));
+
+    const connectedPlayers = this._getGameSessions('jump-climber')
+      .filter(({ player: p }) => !p.isSpectator).length;
+    if (connectedPlayers >= game.expectedPlayers && !game.running) {
       game.running = true;
       this._startJumpLoop();
     }
@@ -474,6 +495,7 @@ export class GameRoom {
 
   _handlePlayerInput(player, msg) {
     if (!this.jumpGame || player.role !== 'game' || player.gameId !== 'jump-climber') return;
+    if (player.isSpectator) return;
     const target = this.jumpGame.players[player.id];
     if (!target) return;
     target.inputDirection = clamp(Number(msg.direction) || 0, -1, 1);

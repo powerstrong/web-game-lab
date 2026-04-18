@@ -20,6 +20,12 @@ const resultRows = Array.from(document.querySelectorAll("[data-result-slot]"));
 const resultNameEls = [document.getElementById("resultName1"), document.getElementById("resultName2")];
 const resultScoreEls = [document.getElementById("resultScore1"), document.getElementById("resultScore2")];
 const resultLeadEl = document.getElementById("resultLead");
+const chatOverlayEl = document.getElementById("chatOverlay");
+const chatMessagesEl = document.getElementById("chatMessages");
+const chatToggleBtn = document.getElementById("chatToggle");
+const chatInputWrap = document.getElementById("chatInputWrap");
+const chatInputEl = document.getElementById("chatInput");
+const chatSendBtn = document.getElementById("chatSend");
 const gameBoot = window.GameBoot || null;
 const isRoomSession = Boolean(gameBoot && gameBoot.isMultiplayer);
 
@@ -91,6 +97,8 @@ const settings = {
   playerSpawnOffset: 52,
 };
 
+const PLAYER_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#ec4899", "#14b8a6", "#f97316"];
+
 const state = {
   running: false,
   rafId: 0,
@@ -99,6 +107,9 @@ const state = {
   playerTouchDirections: [0, 0],
   playerCount: 1,
   cameraY: 0,
+  isSpectator: false,
+  chatInputOpen: false,
+  chatFocused: false,
   setup: [createDefaultSetup("mochi-rabbit"), createDefaultSetup("pudding-hamster")],
   players: [],
   platforms: [],
@@ -217,6 +228,42 @@ function createCharacterOptionMarkup(character, slot, active) {
       <span class="character-option__name">${character.name}</span>
     </button>
   `;
+}
+
+function addChatMessage(entry) {
+  const color = PLAYER_COLORS[(entry.colorIndex || 0) % PLAYER_COLORS.length];
+  const el = document.createElement("div");
+  el.className = "chat-message";
+  el.innerHTML = `<span class="chat-message__name" style="color:${color}">${entry.name}</span>${entry.text}`;
+  chatMessagesEl.appendChild(el);
+
+  while (chatMessagesEl.children.length > 8) {
+    chatMessagesEl.removeChild(chatMessagesEl.firstChild);
+  }
+
+  setTimeout(() => {
+    el.classList.add("is-fading");
+    setTimeout(() => el.remove(), 650);
+  }, 8000);
+}
+
+function sendChat() {
+  const text = (chatInputEl.value || "").trim();
+  if (!text) return;
+  if (!state.network.ws || state.network.ws.readyState !== WebSocket.OPEN) return;
+  state.network.ws.send(JSON.stringify({ type: "chat", text }));
+  chatInputEl.value = "";
+}
+
+function toggleChatInput(open) {
+  state.chatInputOpen = open !== undefined ? open : !state.chatInputOpen;
+  chatInputWrap.classList.toggle("is-open", state.chatInputOpen);
+  chatToggleBtn.textContent = state.chatInputOpen ? "✕" : "💬";
+  if (state.chatInputOpen) chatInputEl.focus();
+}
+
+function showChatOverlay() {
+  chatOverlayEl.classList.remove("is-hidden");
 }
 
 function setStatus(message) {
@@ -594,7 +641,7 @@ function sendNetworkInput(direction) {
 }
 
 function syncNetworkInput(force = false) {
-  if (!isRoomSession) return;
+  if (!isRoomSession || state.isSpectator) return;
   const direction = getPlayerDirection(0);
   if (!force && direction === state.network.lastSentDirection) return;
   state.network.lastSentDirection = direction;
@@ -614,6 +661,15 @@ function handleNetworkMessage(msg) {
   switch (msg.type) {
     case "jump_state":
       updateNetworkTargets(msg);
+      break;
+    case "jump_joined":
+      state.isSpectator = msg.role === "spectator";
+      if (state.isSpectator) {
+        setStatus("관전 중 — 채팅으로 응원해 주세요! 선수들이 열심히 올라가고 있어요.");
+      }
+      break;
+    case "chat":
+      addChatMessage(msg);
       break;
     case "scoreboard":
       state.running = false;
@@ -659,6 +715,7 @@ function connectNetworkGame() {
     );
     startNetworkInputLoop();
     startNetworkRenderLoop();
+    showChatOverlay();
     setStatus("방에 합류했어요. 친구가 들어오면 같은 맵이 시작됩니다.");
   });
 
@@ -829,9 +886,9 @@ function spawnBoost(platform) {
   worldEl.appendChild(el);
 
   state.boosts.push({
-    x: platform.x + platform.width / 2 - 14,
-    y: platform.y - 38,
-    size: 28,
+    x: platform.x + platform.width / 2 - 30,
+    y: platform.y - 68,
+    size: 60,
     kind,
     el,
   });
@@ -1193,6 +1250,7 @@ function findFreeTouchSlot() {
 }
 
 function handlePointerDown(event) {
+  if (state.chatFocused) return;
   const activeSlots = new Set(state.touchAssignments.values());
   const slot = state.playerCount === 1 ? (activeSlots.has(0) ? null : 0) : findFreeTouchSlot();
   if (slot == null) return;
@@ -1355,9 +1413,35 @@ function bindKeyboardEvents() {
   });
 }
 
+function bindChatEvents() {
+  chatToggleBtn.addEventListener("click", () => toggleChatInput());
+
+  chatSendBtn.addEventListener("click", sendChat);
+
+  chatInputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      sendChat();
+    }
+    if (e.key === "Escape") {
+      toggleChatInput(false);
+      chatInputEl.blur();
+    }
+  });
+
+  chatInputEl.addEventListener("focus", () => {
+    state.chatFocused = true;
+  });
+
+  chatInputEl.addEventListener("blur", () => {
+    state.chatFocused = false;
+  });
+}
+
 configureSessionMode();
 bindSetupEvents();
 bindKeyboardEvents();
+bindChatEvents();
 window.addEventListener("resize", applyArenaScale);
 renderSetupUI();
 updateHud();

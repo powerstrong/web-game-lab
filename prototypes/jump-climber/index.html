@@ -192,6 +192,17 @@
               <span>오른쪽 터치</span>
             </div>
 
+            <div id="chatOverlay" class="chat-overlay is-hidden" aria-label="채팅">
+              <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
+              <div class="chat-input-bar">
+                <button id="chatToggle" type="button" class="chat-toggle" aria-label="채팅 열기">💬</button>
+                <div id="chatInputWrap" class="chat-input-wrap">
+                  <input id="chatInput" type="text" class="chat-input-field" placeholder="채팅..." maxlength="80" autocomplete="off" />
+                  <button id="chatSend" type="button" class="chat-send-btn">전송</button>
+                </div>
+              </div>
+            </div>
+
             <div id="resultsOverlay" class="results-overlay" aria-live="polite">
               <div class="results-card">
                 <p class="section-kicker">Round Result</p>
