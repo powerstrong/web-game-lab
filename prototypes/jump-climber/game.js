@@ -19,10 +19,47 @@ const resultLeadEl = document.getElementById("resultLead");
 const gameBoot = window.GameBoot || null;
 const isRoomSession = Boolean(gameBoot && gameBoot.isMultiplayer);
 
+function assetPath(fileName) {
+  return `/assets/${encodeURIComponent(fileName)}`;
+}
+
 const CHARACTER_LIST = [
-  { id: "mochi-rabbit", name: "모찌 토끼" },
-  { id: "pudding-hamster", name: "푸딩 햄스터" },
-  { id: "peach-chick", name: "말랑 병아리" },
+  {
+    id: "mochi-rabbit",
+    name: "모찌 토끼",
+    faceBox: { left: 50, top: 34, size: 22 },
+    assets: {
+      preview: assetPath("토끼 오른쪽 점프.png"),
+      jump_neutral: assetPath("토끼 점프 위로.png"),
+      jump_left: assetPath("토끼 왼쪽 점프.png"),
+      jump_right: assetPath("토끼 오른쪽 점프.png"),
+      fall_neutral: assetPath("토끼 추락.png"),
+    },
+  },
+  {
+    id: "pudding-hamster",
+    name: "푸딩 햄스터",
+    faceBox: { left: 50, top: 35, size: 22 },
+    assets: {
+      preview: assetPath("햄스터 오른쪽.png"),
+      jump_neutral: assetPath("햄스터 점프 위로.png"),
+      jump_left: assetPath("햄스터 왼쪽.png"),
+      jump_right: assetPath("햄스터 오른쪽.png"),
+      fall_neutral: assetPath("햄스터 추락.png"),
+    },
+  },
+  {
+    id: "peach-chick",
+    name: "말랑 병아리",
+    faceBox: { left: 50, top: 34, size: 19 },
+    assets: {
+      preview: assetPath("병아리 오른쪽 점프.png"),
+      jump_neutral: assetPath("병아리 점프.png"),
+      jump_left: assetPath("병아리 왼쪽 점프.png"),
+      jump_right: assetPath("병아리 오른쪽 점프.png"),
+      fall_neutral: assetPath("병아리 추락.png"),
+    },
+  },
 ];
 
 const CHARACTER_MAP = Object.fromEntries(CHARACTER_LIST.map((character) => [character.id, character]));
@@ -102,11 +139,11 @@ function getCharacter(characterId) {
   return CHARACTER_MAP[characterId] || CHARACTER_LIST[0];
 }
 
-function createTuftMarkup() {
-  return '<div class="avatar__tuft"><span></span></div>';
+function getSpriteSrc(character, pose) {
+  return character.assets[pose] || character.assets.jump_neutral;
 }
 
-function createAvatarMarkup(setup, label, compact = false) {
+function createAvatarMarkup(setup, label, compact = false, pose = "preview") {
   const character = getCharacter(setup.characterId);
   const hasCustomFace = Boolean(setup.faceEnabled && setup.faceUrl);
   const classes = ["avatar", `avatar--${character.id}`];
@@ -116,38 +153,25 @@ function createAvatarMarkup(setup, label, compact = false) {
   }
 
   const transform = setup.faceTransform;
-  const style = `--face-scale:${transform.scale}; --face-x:${transform.x}; --face-y:${transform.y};`;
+  const faceBox = character.faceBox;
+  const style =
+    `--face-scale:${transform.scale}; --face-x:${transform.x}; --face-y:${transform.y}; ` +
+    `--face-left:${faceBox.left}%; --face-top:${faceBox.top}%; --face-size:${faceBox.size}%;`;
 
   return `
     <div class="${classes.join(" ")} is-rising" style="${style}">
       ${label ? `<span class="avatar__label">${label}</span>` : ""}
       <div class="avatar__character">
-        <div class="avatar__ear avatar__ear--left"></div>
-        <div class="avatar__ear avatar__ear--right"></div>
-        ${character.id === "peach-chick" ? createTuftMarkup() : ""}
-        <div class="avatar__head">
-          <div class="avatar__face-mask">
-            ${
-              hasCustomFace
-                ? `<img class="avatar__face-photo" src="${setup.faceUrl}" alt="" />`
-                : `
-                  <div class="avatar__face-default">
-                    <span class="avatar__eye avatar__eye--left"></span>
-                    <span class="avatar__eye avatar__eye--right"></span>
-                    <span class="avatar__nose"></span>
-                    <span class="avatar__smile"></span>
-                  </div>
-                `
-            }
-          </div>
-          <div class="avatar__cheek avatar__cheek--left"></div>
-          <div class="avatar__cheek avatar__cheek--right"></div>
-        </div>
-        <div class="avatar__wing avatar__wing--left"></div>
-        <div class="avatar__wing avatar__wing--right"></div>
-        <div class="avatar__body-core"></div>
-        <div class="avatar__paw avatar__paw--left"></div>
-        <div class="avatar__paw avatar__paw--right"></div>
+        <img class="avatar__sprite" src="${getSpriteSrc(character, pose)}" alt="${character.name}" />
+        ${
+          hasCustomFace
+            ? `
+              <div class="avatar__face-mask">
+                <img class="avatar__face-photo" src="${setup.faceUrl}" alt="" />
+              </div>
+            `
+            : ""
+        }
       </div>
     </div>
   `;
@@ -161,7 +185,7 @@ function createCharacterOptionMarkup(character, slot, active) {
       data-slot="${slot}"
       data-character-id="${character.id}"
     >
-      ${createAvatarMarkup({ ...createDefaultSetup(character.id), faceEnabled: false }, "", true)}
+      ${createAvatarMarkup({ ...createDefaultSetup(character.id), faceEnabled: false }, "", true, "preview")}
       <span class="character-option__name">${character.name}</span>
     </button>
   `;
@@ -235,7 +259,7 @@ function renderSetupUI() {
 
     ref.card.classList.toggle("is-hidden", !isActiveSlot);
     ref.name.textContent = character.name;
-    ref.preview.innerHTML = createAvatarMarkup(setup, `${slot + 1}P`);
+    ref.preview.innerHTML = createAvatarMarkup(setup, `${slot + 1}P`, false, "preview");
     ref.options.innerHTML = CHARACTER_LIST.map((item) =>
       createCharacterOptionMarkup(item, slot, item.id === setup.characterId)
     ).join("");
@@ -382,7 +406,7 @@ function createPlayer(slot) {
   const positions = state.playerCount === 1 ? [228] : [155, 300];
   const el = document.createElement("div");
   el.className = "player";
-  el.innerHTML = createAvatarMarkup(state.setup[slot], `${slot + 1}P`);
+  el.innerHTML = createAvatarMarkup(state.setup[slot], `${slot + 1}P`, false, "jump_neutral");
   worldEl.appendChild(el);
 
   return {
@@ -397,6 +421,8 @@ function createPlayer(slot) {
     alive: true,
     el,
     avatarEl: el.querySelector(".avatar"),
+    spriteEl: el.querySelector(".avatar__sprite"),
+    pose: "jump_neutral",
   };
 }
 
@@ -535,6 +561,20 @@ function updateCamera() {
 function updatePlayerVisualState(player) {
   const avatar = player.avatarEl;
   if (!avatar) return;
+
+  let pose = "jump_neutral";
+  if (player.vy > 0.8) {
+    pose = "fall_neutral";
+  } else if (player.vx < -0.35) {
+    pose = "jump_left";
+  } else if (player.vx > 0.35) {
+    pose = "jump_right";
+  }
+
+  if (player.pose !== pose && player.spriteEl) {
+    player.pose = pose;
+    player.spriteEl.src = getSpriteSrc(getCharacter(state.setup[player.slot].characterId), pose);
+  }
 
   avatar.classList.toggle("is-left", player.vx < -0.35);
   avatar.classList.toggle("is-right", player.vx > 0.35);
