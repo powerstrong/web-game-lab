@@ -1250,7 +1250,7 @@ function findFreeTouchSlot() {
 }
 
 function handlePointerDown(event) {
-  if (state.chatFocused) return;
+  if (!state.running || state.chatFocused || resultsOverlay.classList.contains("is-active")) return;
   const activeSlots = new Set(state.touchAssignments.values());
   const slot = state.playerCount === 1 ? (activeSlots.has(0) ? null : 0) : findFreeTouchSlot();
   if (slot == null) return;
@@ -1383,6 +1383,9 @@ function bindSetupEvents() {
     startGame();
   });
   exitAfterResultsButton.addEventListener("click", exitSession);
+
+  resultsOverlay.addEventListener("pointerdown", (e) => e.stopPropagation());
+  chatOverlayEl.addEventListener("pointerdown", (e) => e.stopPropagation());
 
   arena.addEventListener("pointerdown", handlePointerDown);
   arena.addEventListener("pointermove", handlePointerMove);
