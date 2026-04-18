@@ -126,6 +126,7 @@ const configRefs = playerConfigCards.map((card, slot) => ({
   faceUpload: card.querySelector(".face-upload"),
   faceScale: card.querySelector(".face-scale"),
   photoScale: card.querySelector(".photo-scale"),
+  characterScale: card.querySelector(".character-scale"),
   faceX: card.querySelector(".face-x"),
   faceY: card.querySelector(".face-y"),
   faceReset: card.querySelector(".face-reset"),
@@ -142,6 +143,7 @@ function createDefaultSetup(characterId) {
       y: 0,
     },
     photoScale: 1,
+    characterScale: 1,
   };
 }
 
@@ -177,7 +179,7 @@ function createAvatarMarkup(setup, label, compact = false, pose = "preview") {
   const transform = setup.faceTransform;
   const faceBox = character.faceBox;
   const style =
-    `--face-size-scale:${transform.scale}; --photo-scale:${setup.photoScale || 1}; ` +
+    `--face-size-scale:${transform.scale}; --photo-scale:${setup.photoScale || 1}; --character-scale:${setup.characterScale || 1}; ` +
     `--face-x:${transform.x}; --face-y:${transform.y}; ` +
     `--face-left:${faceBox.left}%; --face-top:${faceBox.top}%; --face-size:${faceBox.size}%;`;
 
@@ -618,12 +620,14 @@ function renderSetupUI() {
     ref.faceEnabled.checked = setup.faceEnabled;
     ref.faceScale.value = Math.round(setup.faceTransform.scale * 100);
     ref.photoScale.value = Math.round((setup.photoScale || 1) * 100);
+    ref.characterScale.value = Math.round((setup.characterScale || 1) * 100);
     ref.faceX.value = setup.faceTransform.x;
     ref.faceY.value = setup.faceTransform.y;
     ref.faceEnabled.disabled = faceControlsLocked;
     ref.faceUpload.disabled = faceControlsLocked;
     ref.faceScale.disabled = !slidersEnabled;
     ref.photoScale.disabled = !slidersEnabled;
+    ref.characterScale.disabled = false;
     ref.faceX.disabled = !slidersEnabled;
     ref.faceY.disabled = !slidersEnabled;
     ref.faceReset.disabled = !setup.faceEnabled && !setup.faceUrl;
@@ -1186,6 +1190,12 @@ function bindSetupEvents() {
       noteConfigChange();
     });
 
+    ref.characterScale.addEventListener("input", () => {
+      state.setup[slot].characterScale = Number(ref.characterScale.value) / 100;
+      renderSetupUI();
+      noteConfigChange();
+    });
+
     ref.faceX.addEventListener("input", () => {
       state.setup[slot].faceTransform.x = Number(ref.faceX.value);
       renderSetupUI();
@@ -1202,6 +1212,7 @@ function bindSetupEvents() {
       state.setup[slot].faceEnabled = false;
       state.setup[slot].faceTransform = { scale: 1, x: 0, y: 0 };
       state.setup[slot].photoScale = 1;
+      state.setup[slot].characterScale = 1;
       renderSetupUI();
       noteConfigChange();
     });
