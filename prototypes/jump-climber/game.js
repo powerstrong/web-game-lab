@@ -108,8 +108,11 @@ const state = {
     ws: null,
     joined: false,
     snapshot: null,
+    snapshots: [],
     lastSentDirection: null,
     inputIntervalId: 0,
+    renderFrameId: 0,
+    lastFrameTime: 0,
     platformEls: new Map(),
     boostEls: new Map(),
     playerEls: new Map(),
@@ -291,12 +294,21 @@ function clearNetworkWorld() {
   state.network.boostEls.clear();
   state.network.playerEls.clear();
   state.network.snapshot = null;
+  state.network.snapshots = [];
+  state.network.lastFrameTime = 0;
 }
 
 function stopNetworkInputLoop() {
   if (state.network.inputIntervalId) {
     clearInterval(state.network.inputIntervalId);
     state.network.inputIntervalId = 0;
+  }
+}
+
+function stopNetworkRenderLoop() {
+  if (state.network.renderFrameId) {
+    cancelAnimationFrame(state.network.renderFrameId);
+    state.network.renderFrameId = 0;
   }
 }
 
@@ -307,6 +319,7 @@ function stopSoloGame() {
 
 function exitSession() {
   stopNetworkInputLoop();
+  stopNetworkRenderLoop();
   if (state.network.ws) {
     try {
       state.network.ws.close();
@@ -414,7 +427,16 @@ function syncEntityMap(map, items, createFn, updateFn) {
   }
 }
 
-function renderNetworkSnapshot(snapshot) {
+function initializeEntityMotion(entry, x, y, rotation = 0) {
+  if (typeof entry.currentX !== "number") entry.currentX = x;
+  if (typeof entry.currentY !== "number") entry.currentY = y;
+  if (typeof entry.targetX !== "number") entry.targetX = x;
+  if (typeof entry.targetY !== "number") entry.targetY = y;
+  if (typeof entry.currentRotation !== "number") entry.currentRotation = rotation;
+  if (typeof entry.targetRotation !== "number") entry.targetRotation = rotation;
+}
+
+function updateNetworkTargets(snapshot) {
   applyArenaScale();
   state.network.snapshot = snapshot;
 
@@ -430,14 +452,18 @@ function renderNetworkSnapshot(snapshot) {
         el.innerHTML = `<span class="platform-deco platform-deco--${decoType}"></span>`;
       }
       worldEl.appendChild(el);
-      return el;
+      return { el };
     },
-    (el, platform) => {
+    (entry, platform) => {
+      const el = entry.el;
       el.className = `platform platform--${platform.kind}`;
       el.style.width = `${platform.width}px`;
       const decoType = PLATFORM_DECO_BY_MOTION[platform.motion?.type] || "";
       el.innerHTML = decoType ? `<span class="platform-deco platform-deco--${decoType}"></span>` : "";
-      el.style.transform = `translate(${platform.x}px, ${platform.y - snapshot.cameraY}px) rotate(${platform.rotation || 0}deg)`;
+      initializeEntityMotion(entry, platform.x, platform.y - snapshot.cameraY, platform.rotation || 0);
+      entry.targetX = platform.x;
+      entry.targetY = platform.y - snapshot.cameraY;
+      entry.targetRotation = platform.rotation || 0;
     }
   );
 
@@ -449,12 +475,15 @@ function renderNetworkSnapshot(snapshot) {
       el.className = `boost boost--${boost.kind}`;
       el.textContent = BOOST_META[boost.kind]?.label || "";
       worldEl.appendChild(el);
-      return el;
+      return { el };
     },
-    (el, boost) => {
+    (entry, boost) => {
+      const el = entry.el;
       el.className = `boost boost--${boost.kind}`;
       el.textContent = BOOST_META[boost.kind]?.label || "";
-      el.style.transform = `translate(${boost.x}px, ${boost.y - snapshot.cameraY}px)`;
+      initializeEntityMotion(entry, boost.x, boost.y - snapshot.cameraY);
+      entry.targetX = boost.x;
+      entry.targetY = boost.y - snapshot.cameraY;
     }
   );
 
@@ -484,12 +513,15 @@ function renderNetworkSnapshot(snapshot) {
         entry.spriteEl = entry.el.querySelector(".avatar__sprite");
         entry.characterId = player.characterId;
         entry.pose = pose;
-      } else if (isLocalPlayer) {
-        entry.el.innerHTML = createAvatarMarkup(setupForRender, `${player.slot + 1}P`, false, pose);
-        entry.avatarEl = entry.el.querySelector(".avatar");
-        entry.spriteEl = entry.el.querySelector(".avatar__sprite");
       }
 
+      initializeEntityMotion(entry, player.x, player.y - snapshot.cameraY);
+      entry.targetX = player.x;
+      entry.targetY = player.y - snapshot.cameraY;
+      entry.serverX = player.x;
+      entry.serverY = player.y - snapshot.cameraY;
+      entry.serverVx = player.vx || 0;
+      entry.serverVy = player.vy || 0;
       entry.el.classList.toggle("is-eliminated", !player.alive);
       if (entry.avatarEl) {
         entry.avatarEl.classList.toggle("is-left", player.vx < -0.35);
@@ -497,7 +529,9 @@ function renderNetworkSnapshot(snapshot) {
         entry.avatarEl.classList.toggle("is-falling", player.vy > 0.8);
         entry.avatarEl.classList.toggle("is-rising", player.vy <= 0.8);
       }
-      entry.el.style.transform = `translate(${player.x}px, ${player.y - snapshot.cameraY}px)`;
+      entry.isLocalPlayer = isLocalPlayer;
+      entry.alive = player.alive;
+      entry.latest = player;
     }
   );
 
@@ -509,6 +543,49 @@ function renderNetworkSnapshot(snapshot) {
     const aliveCount = (snapshot.players || []).filter((player) => player.alive).length;
     setStatus(aliveCount > 1 ? "같은 맵에서 함께 점프 중!" : "한 명만 남았습니다. 끝까지 올라가세요!");
   }
+}
+
+function renderNetworkFrame(now) {
+  if (!isRoomSession || !state.running) return;
+
+  const dt = state.network.lastFrameTime ? now - state.network.lastFrameTime : 16.67;
+  state.network.lastFrameTime = now;
+  const predictionStep = dt / 16.67;
+
+  state.network.platformEls.forEach((entry) => {
+    entry.currentX += (entry.targetX - entry.currentX) * 0.28;
+    entry.currentY += (entry.targetY - entry.currentY) * 0.28;
+    entry.currentRotation += (entry.targetRotation - entry.currentRotation) * 0.22;
+    entry.el.style.transform = `translate(${entry.currentX}px, ${entry.currentY}px) rotate(${entry.currentRotation}deg)`;
+  });
+
+  state.network.boostEls.forEach((entry) => {
+    entry.currentX += (entry.targetX - entry.currentX) * 0.28;
+    entry.currentY += (entry.targetY - entry.currentY) * 0.28;
+    entry.el.style.transform = `translate(${entry.currentX}px, ${entry.currentY}px)`;
+  });
+
+  state.network.playerEls.forEach((entry) => {
+    if (entry.isLocalPlayer) {
+      const predictedDirection = getPlayerDirection(0);
+      entry.currentX += predictedDirection * settings.moveSpeed * predictionStep;
+      entry.currentX += (entry.serverX - entry.currentX) * 0.18;
+      entry.currentY += (entry.serverY - entry.currentY) * 0.35;
+    } else {
+      entry.currentX += (entry.targetX - entry.currentX) * 0.24;
+      entry.currentY += (entry.targetY - entry.currentY) * 0.24;
+    }
+
+    entry.el.style.transform = `translate(${entry.currentX}px, ${entry.currentY}px)`;
+  });
+
+  state.network.renderFrameId = requestAnimationFrame(renderNetworkFrame);
+}
+
+function startNetworkRenderLoop() {
+  stopNetworkRenderLoop();
+  state.network.lastFrameTime = 0;
+  state.network.renderFrameId = requestAnimationFrame(renderNetworkFrame);
 }
 
 function sendNetworkInput(direction) {
@@ -536,7 +613,7 @@ function startNetworkInputLoop() {
 function handleNetworkMessage(msg) {
   switch (msg.type) {
     case "jump_state":
-      renderNetworkSnapshot(msg);
+      updateNetworkTargets(msg);
       break;
     case "scoreboard":
       state.running = false;
@@ -552,6 +629,7 @@ function handleNetworkMessage(msg) {
 
 function connectNetworkGame() {
   stopNetworkInputLoop();
+  stopNetworkRenderLoop();
   if (state.network.ws) {
     try {
       state.network.ws.close();
@@ -580,6 +658,7 @@ function connectNetworkGame() {
       })
     );
     startNetworkInputLoop();
+    startNetworkRenderLoop();
     setStatus("방에 합류했어요. 친구가 들어오면 같은 맵이 시작됩니다.");
   });
 
@@ -593,6 +672,7 @@ function connectNetworkGame() {
 
   ws.addEventListener("close", () => {
     stopNetworkInputLoop();
+    stopNetworkRenderLoop();
     if (state.running) {
       setStatus("방 연결이 끊어졌습니다. 다시 시작 버튼으로 재접속해 주세요.");
     }
