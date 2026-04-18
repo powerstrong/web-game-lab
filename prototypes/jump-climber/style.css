@@ -392,25 +392,7 @@ h2 {
 
 .arena::before,
 .arena::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-repeat: no-repeat;
-  pointer-events: none;
-}
-
-.arena::after {
-  background:
-    url("/assets/bg_cloud_near.png") left 10% bottom 12% / 48% auto no-repeat,
-    url("/assets/bg_cloud_near.png") right -4% top 20% / 38% auto no-repeat;
-  opacity: 0.82;
-}
-
-.arena::before {
-  background:
-    url("/assets/bg_cloud_far.png") left -8% top 10% / 42% auto no-repeat,
-    url("/assets/bg_cloud_far.png") right -10% center / 46% auto no-repeat;
-  opacity: 0.58;
+  content: none;
 }
 
 .world {
