@@ -20,6 +20,10 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function randomBetween(min, max) {
+  return Math.random() * (max - min) + min;
+}
+
 const JUMP_GAME_SETTINGS = {
   worldWidth: 500,
   arenaHeight: 640,
@@ -31,10 +35,42 @@ const JUMP_GAME_SETTINGS = {
   platformWidthMin: 92,
   platformWidthMax: 150,
   startLineY: 540,
+  playerSpawnOffset: 52,
   tickMs: 16,
 };
 
 const PLATFORM_KINDS = ['leaf', 'cloud', 'cake'];
+
+function createPlatformMotion() {
+  const roll = Math.random();
+  if (roll < 0.18) {
+    return {
+      type: 'drift',
+      amplitude: randomBetween(18, 34),
+      speed: randomBetween(0.45, 0.78),
+      phase: randomBetween(0, Math.PI * 2),
+      rotateAmplitude: randomBetween(2, 4),
+    };
+  }
+
+  if (roll < 0.33) {
+    return {
+      type: 'rotate',
+      amplitude: 0,
+      speed: randomBetween(0.5, 0.9),
+      phase: randomBetween(0, Math.PI * 2),
+      rotateAmplitude: randomBetween(5, 9),
+    };
+  }
+
+  return {
+    type: 'static',
+    amplitude: 0,
+    speed: 0,
+    phase: 0,
+    rotateAmplitude: 0,
+  };
+}
 
 export class GameRoom {
   constructor(state, env) {
@@ -106,7 +142,7 @@ export class GameRoom {
       connected: previous?.connected || false,
       inputDirection: 0,
       x: positions[slot] ?? 228,
-      y: JUMP_GAME_SETTINGS.startLineY - 42 - slot * 10,
+      y: JUMP_GAME_SETTINGS.startLineY - JUMP_GAME_SETTINGS.playerSpawnOffset - slot * 10,
       width: 46,
       height: 46,
       vx: 0,
@@ -124,9 +160,22 @@ export class GameRoom {
       ? (JUMP_GAME_SETTINGS.worldWidth - width) / 2
       : Math.random() * (JUMP_GAME_SETTINGS.worldWidth - width - 20) + 10;
     const kind = isBase ? 'base' : PLATFORM_KINDS[Math.floor(Math.random() * PLATFORM_KINDS.length)];
-    const platform = { id: `platform-${game.nextPlatformId++}`, x, y, width, height: 18, kind };
+    const motion = isBase
+      ? { type: 'static', amplitude: 0, speed: 0, phase: 0, rotateAmplitude: 0 }
+      : createPlatformMotion();
+    const platform = {
+      id: `platform-${game.nextPlatformId++}`,
+      x,
+      y,
+      width,
+      height: 18,
+      kind,
+      baseX: x,
+      rotation: 0,
+      motion,
+    };
 
-    if (!isBase && Math.random() < 0.2) {
+    if (!isBase && motion.type === 'static' && Math.random() < 0.2) {
       this._spawnJumpBoost(game, platform);
     }
 
@@ -178,6 +227,7 @@ export class GameRoom {
     this.jumpGame.cameraY = 0;
     this.jumpGame.nextPlatformId = 1;
     this.jumpGame.nextBoostId = 1;
+    this.jumpGame.elapsedMs = 0;
     this.jumpGame.players = {};
     this.jumpGame.running = false;
 
@@ -213,6 +263,23 @@ export class GameRoom {
       platforms: this.jumpGame.platforms.map((platform) => ({ ...platform })),
       boosts: this.jumpGame.boosts.map((boost) => ({ ...boost })),
     };
+  }
+
+  _updateJumpPlatformMotion() {
+    if (!this.jumpGame) return;
+    const time = this.jumpGame.elapsedMs / 1000;
+
+    this.jumpGame.platforms.forEach((platform) => {
+      if (!platform.motion || platform.motion.type === 'static') {
+        platform.x = platform.baseX;
+        platform.rotation = 0;
+        return;
+      }
+
+      const wave = Math.sin(time * platform.motion.speed + platform.motion.phase);
+      platform.x = platform.baseX + (platform.motion.type === 'drift' ? wave * platform.motion.amplitude : 0);
+      platform.rotation = wave * platform.motion.rotateAmplitude;
+    });
   }
 
   _broadcastJumpSnapshot() {
@@ -331,6 +398,8 @@ export class GameRoom {
   async _tickJumpGame() {
     if (!this.jumpGame || !this.jumpGame.running) return;
 
+    this.jumpGame.elapsedMs += JUMP_GAME_SETTINGS.tickMs;
+    this._updateJumpPlatformMotion();
     this._ensureJumpPlatformsAbove();
 
     Object.values(this.jumpGame.players).forEach((player) => {

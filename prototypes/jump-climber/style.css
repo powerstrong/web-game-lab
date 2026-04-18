@@ -424,6 +424,7 @@ h2 {
 .platform {
   height: 18px;
   border-radius: 999px;
+  transform-origin: center center;
   box-shadow: 0 10px 20px rgba(116, 174, 112, 0.22);
 }
 
@@ -607,7 +608,7 @@ h2 {
   --move-tilt: 0deg;
   position: absolute;
   inset: 8% 0 0;
-  transform: translate(var(--move-x), var(--move-y)) rotate(var(--move-tilt)) scale(var(--sprite-scale, 1));
+  transform: translate(var(--move-x), var(--move-y)) rotate(var(--move-tilt));
   transform-origin: center center;
   transition:
     transform 140ms ease,
@@ -651,7 +652,7 @@ h2 {
   height: var(--face-size, 20%);
   border-radius: 999px;
   overflow: hidden;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(var(--face-size-scale, 1));
   background: rgba(255, 255, 255, 0.82);
   border: 2px solid rgba(255, 255, 255, 0.9);
   box-shadow: 0 4px 10px rgba(102, 76, 88, 0.18);
@@ -666,7 +667,7 @@ h2 {
   object-fit: cover;
   border-radius: 50%;
   transform: translate(calc(-50% + (var(--face-x, 0) * 1%)), calc(-50% + (var(--face-y, 0) * 1%)))
-    scale(var(--face-scale, 1));
+    scale(var(--photo-scale, 1));
 }
 
 .character-option .avatar {

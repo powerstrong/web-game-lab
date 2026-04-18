@@ -83,6 +83,7 @@ const settings = {
   platformWidthMin: 92,
   platformWidthMax: 150,
   startLineY: 540,
+  playerSpawnOffset: 52,
 };
 
 const state = {
@@ -119,7 +120,7 @@ const configRefs = playerConfigCards.map((card, slot) => ({
   faceEnabled: card.querySelector(".face-enabled"),
   faceUpload: card.querySelector(".face-upload"),
   faceScale: card.querySelector(".face-scale"),
-  spriteScale: card.querySelector(".sprite-scale"),
+  photoScale: card.querySelector(".photo-scale"),
   faceX: card.querySelector(".face-x"),
   faceY: card.querySelector(".face-y"),
   faceReset: card.querySelector(".face-reset"),
@@ -135,7 +136,7 @@ function createDefaultSetup(characterId) {
       x: 0,
       y: 0,
     },
-    spriteScale: 1,
+    photoScale: 1,
   };
 }
 
@@ -171,7 +172,7 @@ function createAvatarMarkup(setup, label, compact = false, pose = "preview") {
   const transform = setup.faceTransform;
   const faceBox = character.faceBox;
   const style =
-    `--face-scale:${transform.scale}; --sprite-scale:${setup.spriteScale || 1}; ` +
+    `--face-size-scale:${transform.scale}; --photo-scale:${setup.photoScale || 1}; ` +
     `--face-x:${transform.x}; --face-y:${transform.y}; ` +
     `--face-left:${faceBox.left}%; --face-top:${faceBox.top}%; --face-size:${faceBox.size}%;`;
 
@@ -229,6 +230,37 @@ function getPoseFromStateLike(player) {
   if (player.vx < -0.35) return "jump_left";
   if (player.vx > 0.35) return "jump_right";
   return "jump_neutral";
+}
+
+function createPlatformMotion() {
+  const roll = Math.random();
+  if (roll < 0.18) {
+    return {
+      type: "drift",
+      amplitude: random(18, 34),
+      speed: random(0.45, 0.78),
+      phase: random(0, Math.PI * 2),
+      rotateAmplitude: random(2, 4),
+    };
+  }
+
+  if (roll < 0.33) {
+    return {
+      type: "rotate",
+      amplitude: 0,
+      speed: random(0.5, 0.9),
+      phase: random(0, Math.PI * 2),
+      rotateAmplitude: random(5, 9),
+    };
+  }
+
+  return {
+    type: "static",
+    amplitude: 0,
+    speed: 0,
+    phase: 0,
+    rotateAmplitude: 0,
+  };
 }
 
 function getArenaScale() {
@@ -392,7 +424,7 @@ function renderNetworkSnapshot(snapshot) {
     (el, platform) => {
       el.className = `platform platform--${platform.kind}`;
       el.style.width = `${platform.width}px`;
-      el.style.transform = `translate(${platform.x}px, ${platform.y - snapshot.cameraY}px)`;
+      el.style.transform = `translate(${platform.x}px, ${platform.y - snapshot.cameraY}px) rotate(${platform.rotation || 0}deg)`;
     }
   );
 
@@ -574,13 +606,13 @@ function renderSetupUI() {
     ).join("");
     ref.faceEnabled.checked = setup.faceEnabled;
     ref.faceScale.value = Math.round(setup.faceTransform.scale * 100);
-    ref.spriteScale.value = Math.round((setup.spriteScale || 1) * 100);
+    ref.photoScale.value = Math.round((setup.photoScale || 1) * 100);
     ref.faceX.value = setup.faceTransform.x;
     ref.faceY.value = setup.faceTransform.y;
     ref.faceEnabled.disabled = faceControlsLocked;
     ref.faceUpload.disabled = faceControlsLocked;
     ref.faceScale.disabled = !slidersEnabled;
-    ref.spriteScale.disabled = faceControlsLocked;
+    ref.photoScale.disabled = !slidersEnabled;
     ref.faceX.disabled = !slidersEnabled;
     ref.faceY.disabled = !slidersEnabled;
     ref.faceReset.disabled = !setup.faceEnabled && !setup.faceUrl;
@@ -663,15 +695,27 @@ function createPlatform(y, isBase = false) {
     : Math.round(random(settings.platformWidthMin, settings.platformWidthMax));
   const x = isBase ? (settings.worldWidth - width) / 2 : random(10, settings.worldWidth - width - 10);
   const kind = isBase ? "base" : PLATFORM_KINDS[Math.floor(random(0, PLATFORM_KINDS.length))];
+  const motion = isBase
+    ? { type: "static", amplitude: 0, speed: 0, phase: 0, rotateAmplitude: 0 }
+    : createPlatformMotion();
 
   const el = document.createElement("div");
   el.className = `platform platform--${kind}`;
   el.style.width = `${width}px`;
   worldEl.appendChild(el);
 
-  const platform = { x, y, width, height: 18, el };
+  const platform = {
+    x,
+    y,
+    width,
+    height: 18,
+    el,
+    baseX: x,
+    rotation: 0,
+    motion,
+  };
 
-  if (!isBase && Math.random() < 0.2) {
+  if (!isBase && motion.type === "static" && Math.random() < 0.2) {
     spawnBoost(platform);
   }
 
@@ -725,7 +769,7 @@ function createPlayer(slot) {
   return {
     slot,
     x: positions[slot],
-    y: settings.startLineY - 42 - slot * 10,
+    y: settings.startLineY - settings.playerSpawnOffset - slot * 10,
     width: 46,
     height: 46,
     vx: 0,
@@ -737,6 +781,21 @@ function createPlayer(slot) {
     spriteEl: el.querySelector(".avatar__sprite"),
     pose: "jump_neutral",
   };
+}
+
+function updatePlatformMotionLocal() {
+  const time = performance.now() / 1000;
+  state.platforms.forEach((platform) => {
+    if (!platform.motion || platform.motion.type === "static") {
+      platform.x = platform.baseX;
+      platform.rotation = 0;
+      return;
+    }
+
+    const wave = Math.sin(time * platform.motion.speed + platform.motion.phase);
+    platform.x = platform.baseX + (platform.motion.type === "drift" ? wave * platform.motion.amplitude : 0);
+    platform.rotation = wave * platform.motion.rotateAmplitude;
+  });
 }
 
 function ensurePlatformsAbove() {
@@ -898,7 +957,7 @@ function updatePlayerVisualState(player) {
 function render() {
   applyArenaScale();
   state.platforms.forEach((platform) => {
-    platform.el.style.transform = `translate(${platform.x}px, ${platform.y - state.cameraY}px)`;
+    platform.el.style.transform = `translate(${platform.x}px, ${platform.y - state.cameraY}px) rotate(${platform.rotation || 0}deg)`;
   });
 
   state.boosts.forEach((boost) => {
@@ -938,6 +997,7 @@ function loop() {
   if (!state.running) return;
 
   ensurePlatformsAbove();
+  updatePlatformMotionLocal();
   updatePlayers();
   updateCamera();
   render();
@@ -1105,8 +1165,8 @@ function bindSetupEvents() {
       noteConfigChange();
     });
 
-    ref.spriteScale.addEventListener("input", () => {
-      state.setup[slot].spriteScale = Number(ref.spriteScale.value) / 100;
+    ref.photoScale.addEventListener("input", () => {
+      state.setup[slot].photoScale = Number(ref.photoScale.value) / 100;
       renderSetupUI();
       noteConfigChange();
     });
@@ -1126,7 +1186,7 @@ function bindSetupEvents() {
     ref.faceReset.addEventListener("click", () => {
       state.setup[slot].faceEnabled = false;
       state.setup[slot].faceTransform = { scale: 1, x: 0, y: 0 };
-      state.setup[slot].spriteScale = 1;
+      state.setup[slot].photoScale = 1;
       renderSetupUI();
       noteConfigChange();
     });
