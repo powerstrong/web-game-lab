@@ -1,6 +1,7 @@
 const marker = document.getElementById("marker");
 const scoreEl = document.getElementById("score");
 const comboEl = document.getElementById("combo");
+const timerEl = document.getElementById("timer");
 const messageEl = document.getElementById("message");
 const restartButton = document.getElementById("restart");
 
@@ -11,18 +12,25 @@ const state = {
   direction: 1,
   score: 0,
   combo: 0,
+  startedAt: 0,
+  timeLeft: 30,
   rafId: 0,
+  exitTimeoutId: 0,
 };
 
 function resetGame() {
+  clearTimeout(state.exitTimeoutId);
   state.running = true;
   state.markerY = 0;
   state.speed = 3.2;
   state.direction = 1;
   state.score = 0;
   state.combo = 0;
+  state.startedAt = performance.now();
+  state.timeLeft = 30;
   scoreEl.textContent = "Score 0";
   comboEl.textContent = "Combo 0";
+  timerEl.textContent = "남은 시간 30초";
   messageEl.textContent = "Press space when the marker crosses the line";
   cancelAnimationFrame(state.rafId);
   state.rafId = requestAnimationFrame(tick);
@@ -32,11 +40,38 @@ function render() {
   marker.style.transform = `translateY(${state.markerY}px)`;
 }
 
+function endGame() {
+  if (!state.running) return;
+
+  state.running = false;
+  cancelAnimationFrame(state.rafId);
+  scoreEl.textContent = `Score ${state.score}`;
+  comboEl.textContent = `Combo ${state.combo}`;
+  timerEl.textContent = "남은 시간 0초";
+  messageEl.textContent = `시간 종료! 최종 점수: ${state.score}`;
+
+  if (window.GameBoot && window.GameBoot.isMultiplayer) {
+    window.GameBoot.submitResult({ score: state.score });
+    state.exitTimeoutId = window.setTimeout(() => {
+      window.GameBoot.exit();
+    }, 1800);
+  }
+}
+
 function tick() {
   if (!state.running) return;
 
   const lane = marker.parentElement.getBoundingClientRect();
   const maxY = lane.height - 36;
+  const elapsed = (performance.now() - state.startedAt) / 1000;
+
+  state.timeLeft = Math.max(0, 30 - elapsed);
+  timerEl.textContent = `남은 시간 ${Math.ceil(state.timeLeft)}초`;
+
+  if (state.timeLeft === 0) {
+    endGame();
+    return;
+  }
 
   state.markerY += state.speed * state.direction;
 
