@@ -9,16 +9,15 @@
   <body>
     <main class="game-shell">
       <section id="setupScreen" class="screen screen--setup is-active">
-        <section class="panel intro-panel">
-          <p class="eyebrow">Cute Vertical Jump Lab</p>
-          <h1>말랑프렌즈 점프</h1>
-          <p class="summary">
-            토끼, 햄스터, 병아리 중 마음에 드는 캐릭터를 고르고 점프를 시작하세요.
-            얼굴 사진을 얹어 미리볼 수 있고, 2인 플레이에서는 낮은 플레이어 기준으로 화면이 따라옵니다.
-          </p>
-        </section>
+        <div class="main-banner">
+          <img src="/assets/main banner.png" alt="말랑프렌즈 아케이드" class="main-banner__img" />
+        </div>
 
         <section class="panel setup-panel" aria-labelledby="setupTitle">
+          <div class="setup-title-img">
+            <img src="/assets/game_title_jump.png" alt="말랑프렌즈 점프" />
+          </div>
+
           <div class="setup-panel__head">
             <div>
               <p class="section-kicker">Start Setup</p>
@@ -153,7 +152,9 @@
           <div class="play-topbar__main">
             <div>
               <p class="section-kicker">Live Play</p>
-              <h2 id="playTitle" class="play-title">말랑프렌즈 점프</h2>
+              <div id="playTitle" class="play-title">
+                <img src="/assets/game_title_jump.png" alt="말랑프렌즈 점프" class="play-title__img" />
+              </div>
             </div>
 
             <div class="play-actions">
@@ -192,6 +193,10 @@
               <span>오른쪽 터치</span>
             </div>
 
+            <div id="spectatorBadge" class="spectator-badge is-hidden">
+              <img src="/assets/badge_spectator.png" alt="관전" />
+            </div>
+
             <div id="chatOverlay" class="chat-overlay is-hidden" aria-label="채팅">
               <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
               <div class="chat-input-bar">
@@ -205,6 +210,9 @@
 
             <div id="resultsOverlay" class="results-overlay" aria-live="polite">
               <div class="results-card">
+                <div class="results-trophy">
+                  <img src="/assets/result_trophy.png" alt="" />
+                </div>
                 <p class="section-kicker">Round Result</p>
                 <h2 class="results-title">이번 점프 결과</h2>
                 <div class="results-list">

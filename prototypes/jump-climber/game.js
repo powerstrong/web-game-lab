@@ -8,6 +8,7 @@ const startButton = document.getElementById("startGame");
 const restartButton = document.getElementById("restart");
 const backToSetupButton = document.getElementById("backToSetup");
 const playTitleEl = document.getElementById("playTitle");
+const spectatorBadgeEl = document.getElementById("spectatorBadge");
 const restartFromResultsButton = document.getElementById("restartFromResults");
 const exitAfterResultsButton = document.getElementById("exitAfterResults");
 const playerCountButtons = Array.from(document.querySelectorAll("[data-player-count]"));
@@ -676,6 +677,7 @@ function handleNetworkMessage(msg) {
       state.isSpectator = msg.role === "spectator";
       if (state.isSpectator) {
         setStatus("관전 중 — 채팅으로 응원해 주세요! 선수들이 열심히 올라가고 있어요.");
+        if (spectatorBadgeEl) spectatorBadgeEl.classList.remove("is-hidden");
       }
       break;
     case "chat":
@@ -1239,7 +1241,6 @@ function endGame() {
 }
 
 function configureSessionMode() {
-  playTitleEl.textContent = "말랑프렌즈 점프";
   if (!isRoomSession) {
     exitAfterResultsButton.textContent = "허브로 가기";
     backToSetupButton.textContent = "설정으로";

@@ -901,3 +901,51 @@ h2 {
   width: 120px;
   height: 48px;
 }
+
+.main-banner {
+  border-radius: 24px;
+  overflow: hidden;
+  margin-bottom: 14px;
+  box-shadow: 0 12px 32px rgba(167, 100, 120, 0.18);
+}
+.main-banner__img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.setup-title-img {
+  text-align: center;
+  margin-bottom: 10px;
+}
+.setup-title-img img {
+  height: 72px;
+  width: auto;
+}
+.play-title__img {
+  height: 36px;
+  width: auto;
+  display: block;
+}
+.results-trophy {
+  text-align: center;
+  margin-bottom: 8px;
+}
+.results-trophy img {
+  height: 90px;
+  width: auto;
+}
+.spectator-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 12;
+  pointer-events: none;
+}
+.spectator-badge img {
+  height: 44px;
+  width: auto;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.18));
+}
+.spectator-badge.is-hidden {
+  display: none;
+}
