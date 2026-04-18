@@ -78,6 +78,16 @@ document.addEventListener('DOMContentLoaded', () => {
     reconnectAttempts = 0;
     connect(roomCode, playerName);
   });
+  document.getElementById('home-btn').addEventListener('click', (event) => {
+    event.preventDefault();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      showExitModal();
+      return;
+    }
+    navigateHome();
+  });
+  document.getElementById('exit-confirm-btn').addEventListener('click', navigateHome);
+  document.getElementById('exit-cancel-btn').addEventListener('click', hideExitModal);
 
   document.getElementById('rematch-btn').addEventListener('click', () => {
     document.getElementById('scoreboard-overlay').classList.remove('active');
@@ -470,4 +480,16 @@ function showDisconnectOverlay(msg) {
 
 function hideDisconnectOverlay() {
   document.getElementById('disconnect-overlay').classList.remove('active');
+}
+
+function showExitModal() {
+  document.getElementById('exit-modal')?.classList.add('active');
+}
+
+function hideExitModal() {
+  document.getElementById('exit-modal')?.classList.remove('active');
+}
+
+function navigateHome() {
+  window.location.href = '/';
 }

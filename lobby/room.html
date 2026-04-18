@@ -14,6 +14,7 @@
 </head>
 <body>
   <header class="topbar">
+    <a class="home-btn" id="home-btn" href="/">홈</a>
     <div class="brand">
       <p class="topbar-label">MATCH LOBBY</p>
       <span class="logo">시작 전 마지막 준비</span>
@@ -96,6 +97,16 @@
       <div class="disconnect-title">연결이 끊어졌습니다</div>
       <div class="disconnect-msg" id="disconnect-msg">잠시 후 다시 연결합니다.</div>
       <button class="btn btn-reconnect" id="reconnect-btn">다시 연결</button>
+    </div>
+  </div>
+
+  <div class="exit-modal" id="exit-modal">
+    <div class="exit-modal-card">
+      <p class="exit-modal-msg">방에서 나가면 연결이 끊어집니다.<br>나가시겠습니까?</p>
+      <div class="exit-modal-actions">
+        <button class="btn btn-start" id="exit-confirm-btn">나가기</button>
+        <button class="btn btn-secondary" id="exit-cancel-btn">취소</button>
+      </div>
     </div>
   </div>
 
