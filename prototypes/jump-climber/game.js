@@ -1405,7 +1405,9 @@ function endGame() {
 function configureSessionMode() {
   if (!isRoomSession) {
     exitAfterResultsButton.textContent = "허브로 가기";
-    backToSetupButton.textContent = "설정으로";
+    backToSetupButton.textContent = "설정";
+    restartButton.hidden = false;
+    restartButton.textContent = "재시작";
     return;
   }
 
@@ -1421,7 +1423,7 @@ function configureSessionMode() {
   }
 
   startButton.textContent = "방 합류";
-  restartButton.textContent = "대기실로 복귀";
+  restartButton.hidden = true;
   backToSetupButton.textContent = "대기실로";
 }
 
