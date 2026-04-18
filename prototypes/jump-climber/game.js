@@ -123,6 +123,7 @@ const state = {
   players: [],
   platforms: [],
   boosts: [],
+  effects: [],
   resultSubmitted: false,
   audio: {
     ctx: null,
@@ -440,6 +441,7 @@ function clearNetworkWorld() {
   state.network.snapshot = null;
   state.network.snapshots = [];
   state.network.lastFrameTime = 0;
+  state.effects = [];
 }
 
 function stopNetworkInputLoop() {
@@ -583,6 +585,7 @@ function initializeEntityMotion(entry, x, y, rotation = 0) {
 function updateNetworkTargets(snapshot) {
   applyArenaScale();
   state.network.snapshot = snapshot;
+  state.cameraY = snapshot.cameraY;
 
   syncEntityMap(
     state.network.platformEls,
@@ -751,6 +754,10 @@ function renderNetworkFrame(now) {
     }
 
     entry.el.style.transform = `translate(${entry.currentX}px, ${entry.currentY}px)`;
+  });
+
+  state.effects.forEach((effect) => {
+    effect.el.style.setProperty("--ty", `${effect.tyBase - state.cameraY}px`);
   });
 
   state.network.renderFrameId = requestAnimationFrame(renderNetworkFrame);
@@ -1046,11 +1053,19 @@ function spawnEffect(kind, worldX, worldY) {
   const w = isLand ? 148 : 96;
   const h = isLand ? 72 : 96;
   const tx = worldX - w / 2;
-  const ty = isLand ? worldY - state.cameraY - h * 0.56 : worldY - state.cameraY - h / 2;
+  const tyBase = isLand ? worldY - h * 0.56 : worldY - h / 2;
+
+  const effectObj = { el, tx, tyBase };
+  state.effects.push(effectObj);
+
   el.style.setProperty("--tx", `${tx}px`);
-  el.style.setProperty("--ty", `${ty}px`);
+  el.style.setProperty("--ty", `${tyBase - state.cameraY}px`);
+
   worldEl.appendChild(el);
-  setTimeout(() => el.remove(), isLand ? 520 : 420);
+  setTimeout(() => {
+    el.remove();
+    state.effects = state.effects.filter((e) => e !== effectObj);
+  }, isLand ? 520 : 420);
 }
 
 function clearWorld() {
@@ -1059,6 +1074,7 @@ function clearWorld() {
   state.players = [];
   state.platforms = [];
   state.boosts = [];
+  state.effects = [];
   state.touchAssignments.clear();
   state.playerTouchDirections = [0, 0];
 }
@@ -1293,6 +1309,10 @@ function render() {
   state.players.forEach((player) => {
     updatePlayerVisualState(player);
     player.el.style.transform = `translate(${player.x}px, ${player.y - state.cameraY}px)`;
+  });
+
+  state.effects.forEach((effect) => {
+    effect.el.style.setProperty("--ty", `${effect.tyBase - state.cameraY}px`);
   });
 }
 
