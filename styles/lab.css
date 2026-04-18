@@ -35,32 +35,16 @@ body {
 }
 
 .hero {
-  padding: 28px;
-  border: 1px solid var(--border);
   border-radius: 32px;
-  background: var(--surface);
+  overflow: hidden;
+  background: var(--surface-strong);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(16px);
 }
 
-.eyebrow {
-  margin: 0 0 14px;
-  color: var(--accent-strong);
-  font-size: 0.82rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
-h1 {
-  margin: 0;
-  font-family: "Outfit", "Noto Sans KR", sans-serif;
-  font-size: clamp(3rem, 9vw, 5.4rem);
-  line-height: 0.95;
-  letter-spacing: -0.05em;
-}
-
-h1 span {
+.hero-banner {
   display: block;
+  width: 100%;
+  height: auto;
 }
 
 .hero-copy {
@@ -76,7 +60,7 @@ h1 span {
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
-  margin-top: 24px;
+  padding: 20px 24px 24px;
 }
 
 .cta-button {
@@ -313,17 +297,12 @@ h1 span {
   }
 
   .hero {
-    padding: 22px 18px;
-    border-radius: 24px;
+    border-radius: 20px;
   }
 
   .quick-steps,
   .game-strip,
   .hub-grid {
     grid-template-columns: 1fr;
-  }
-
-  h1 {
-    font-size: clamp(2.4rem, 13vw, 4rem);
   }
 }
