@@ -85,9 +85,11 @@ export class GameRoom {
     switch (msg.type) {
       case 'join':      await this._handleJoin(ws, msg);                        break;
       case 'chat':      if (player) await this._handleChat(player, msg);        break;
-      case 'vote_game': if (player) await this._handleVoteGame(ws, player, msg); break;
-      case 'vote_start':if (player) await this._handleVoteStart(ws, player, msg);break;
-      case 'ping':      ws.send(JSON.stringify({ type: 'pong' }));              break;
+      case 'vote_game':     if (player) await this._handleVoteGame(ws, player, msg);      break;
+      case 'vote_start':    if (player) await this._handleVoteStart(ws, player, msg);     break;
+      case 'submit_result': if (player) await this._handleSubmitResult(player, msg);      break;
+      case 'rematch':       if (player) await this._handleRematch();                       break;
+      case 'ping':          ws.send(JSON.stringify({ type: 'pong' }));                    break;
     }
   }
 
@@ -186,6 +188,38 @@ export class GameRoom {
     }
     await this.state.storage.put('phase', 'playing');
     this._broadcastAll({ type: 'game_start', gameId });
+  }
+
+  async _handleSubmitResult(player, msg) {
+    const score = typeof msg.score === 'number' ? Math.max(0, msg.score) : 0;
+    const scores = (await this.state.storage.get('scores')) || {};
+    scores[player.id] = { name: player.name, score, colorIndex: player.colorIndex };
+    await this.state.storage.put('scores', scores);
+
+    const sessions = this._getSessions();
+    const total = sessions.length;
+    const submitted = Object.keys(scores).length;
+
+    const ranked = Object.values(scores)
+      .sort((a, b) => b.score - a.score)
+      .map((entry, i) => ({ ...entry, rank: i + 1 }));
+
+    this._broadcastAll({ type: 'scoreboard', results: ranked, submitted, total, final: submitted >= total });
+
+    if (submitted >= total) {
+      await this.state.storage.put('phase', 'results');
+    }
+  }
+
+  async _handleRematch() {
+    await this.state.storage.delete('scores');
+    // Reset player votes
+    for (const { ws, player } of this._getSessions()) {
+      ws.serializeAttachment({ ...player, gameVote: null, startVote: false });
+    }
+    await this.state.storage.put('phase', 'lobby');
+    const sessions = this._getSessions();
+    this._broadcastAll({ type: 'room_state', players: sessions.map(s => s.player), gameVotes: {}, startVotes: 0 });
   }
 
   async _removePlayer(ws) {

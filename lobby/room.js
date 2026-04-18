@@ -73,6 +73,14 @@ document.addEventListener('DOMContentLoaded', () => {
     connect(roomCode, playerName);
   });
 
+  document.getElementById('rematch-btn').addEventListener('click', () => {
+    document.getElementById('scoreboard-overlay').classList.remove('active');
+    send({ type: 'rematch' });
+    myGameVote = null;
+    myStartVote = false;
+    currentGame = null;
+  });
+
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendChat();
   });
@@ -109,6 +117,19 @@ function onOpen() {
   reconnectAttempts = 0;
   setConnStatus('connected', '연결됨');
   send({ type: 'join', name: playerName });
+
+  // If returning from a game with a pending result, submit it now
+  try {
+    const raw = sessionStorage.getItem('lastGameResult');
+    if (raw) {
+      const result = JSON.parse(raw);
+      if (result.code === roomCode && typeof result.score === 'number') {
+        send({ type: 'submit_result', score: result.score, gameId: result.gameId });
+      }
+      sessionStorage.removeItem('lastGameResult');
+    }
+  } catch { /* ignore */ }
+
   if (preselectedGameId && GAME_META[preselectedGameId]) {
     myGameVote = preselectedGameId;
     send({ type: 'vote_game', gameId: preselectedGameId });
@@ -179,12 +200,11 @@ function handleMessage(msg) {
       break;
 
     case 'room_state':
+      document.getElementById('scoreboard-overlay')?.classList.remove('active');
       renderPlayers(msg.players, msg.gameVotes || {});
       renderGameVotes(msg.gameVotes || {});
-      if (msg.startVotes !== undefined) {
-        currentStartVotes = { count: msg.startVotes, total: (msg.players || []).length };
-        renderStartTally();
-      }
+      currentStartVotes = { count: msg.startVotes || 0, total: (msg.players || []).length };
+      renderStartTally();
       break;
 
     case 'player_joined':
@@ -217,6 +237,10 @@ function handleMessage(msg) {
     case 'game_start':
       currentGame = msg.gameId;
       startCountdown(3);
+      break;
+
+    case 'scoreboard':
+      renderScoreboard(msg.results || [], msg.submitted, msg.total, msg.final);
       break;
 
     case 'error':
@@ -407,6 +431,29 @@ function setConnStatus(state, label) {
   const lbl = document.getElementById('conn-label');
   dot.className = `conn-indicator ${state}`;
   lbl.textContent = label;
+}
+
+function renderScoreboard(results, submitted, total, final) {
+  const overlay = document.getElementById('scoreboard-overlay');
+  const list = document.getElementById('scoreboard-list');
+  const status = document.getElementById('scoreboard-status');
+
+  list.innerHTML = '';
+  results.forEach(entry => {
+    const li = document.createElement('li');
+    li.className = 'scoreboard-item';
+    li.innerHTML =
+      `<span class="scoreboard-rank">${entry.rank}</span>` +
+      `<span class="scoreboard-name">${entry.name}</span>` +
+      `<span class="scoreboard-score">${entry.score}점</span>`;
+    list.appendChild(li);
+  });
+
+  status.textContent = final
+    ? '최종 결과'
+    : `${submitted ?? 0} / ${total ?? '?'} 제출 완료`;
+
+  overlay.classList.add('active');
 }
 
 function showDisconnectOverlay(msg) {
