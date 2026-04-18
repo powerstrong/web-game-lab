@@ -135,16 +135,21 @@ function onOpen() {
   send({ type: 'join', name: playerName });
 
   // If returning from a game with a pending result, submit it now
+  let submittedLastResult = false;
   try {
     const raw = sessionStorage.getItem('lastGameResult');
     if (raw) {
       const result = JSON.parse(raw);
       if (result.code === roomCode && typeof result.score === 'number') {
         send({ type: 'submit_result', score: result.score, gameId: result.gameId });
+        submittedLastResult = true;
       }
       sessionStorage.removeItem('lastGameResult');
     }
   } catch { /* ignore */ }
+  if (submittedLastResult) {
+    appendSystemChat('방금 플레이한 결과를 제출했습니다.');
+  }
 
   if (preselectedGameId && GAME_META[preselectedGameId]) {
     myGameVote = preselectedGameId;
@@ -252,6 +257,10 @@ function handleMessage(msg) {
 
     case 'game_start':
       currentGame = msg.gameId;
+      {
+        const meta = GAME_META[msg.gameId];
+        if (meta) appendSystemChat(meta.label + '을(를) 시작합니다!');
+      }
       startCountdown(3);
       break;
 
