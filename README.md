@@ -33,7 +33,7 @@
 │   ├── _template/
 │   ├── dodge-square/       # SOLO — 반사신경 피하기
 │   ├── rhythm-tap/         # PARTY_ASYNC — 타이밍 경쟁
-│   └── jump-climber/       # SOLO — 수직 클라이머
+│   └── jump-climber/       # DUEL_LIVE — 모찌팡 점프점프
 └── docs/
     ├── prototype-brief.md
     ├── experiment-log.md
@@ -47,6 +47,17 @@
 | `SOLO` | 혼자 플레이, 개인 기록 | 허브에서 바로 게임 진입 |
 | `DUEL_LIVE` | 실시간 대전 | 로비 → 방 → 게임 |
 | `PARTY_ASYNC` | 제한 시간 동시 플레이 후 결과 비교 | 로비 → 방 → 게임 → 점수 제출 → 스코어보드 |
+
+## 현재 주력 프로토타입
+
+### `jump-climber` / 모찌팡 점프점프
+
+- 1P 또는 2P 로컬 동시 플레이
+- 캐릭터 3종 선택
+- 얼굴 사진 업로드와 미리보기
+- 플레이어별 최고 높이 기록 HUD
+- 낮은 플레이어 기준 카메라 추적
+- 모바일 전체 화면 좌/우 터치 입력
 
 ## 공통 레이어
 

@@ -3,39 +3,188 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Jump Climber Prototype</title>
+    <title>모찌팡 점프점프</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <main class="game-shell">
-      <section class="panel">
-        <p class="eyebrow">Vertical Jump Prototype</p>
-        <h1>말티쬬 점프점프</h1>
+      <section class="panel intro-panel">
+        <p class="eyebrow">Cute Vertical Jump Lab</p>
+        <h1>모찌팡 점프점프</h1>
         <p class="summary">
-          좌/우로 이동하며 발판을 밟아 계속 위로 올라가세요. 고기/천사날개를 먹으면
-          점프 부스트가 걸립니다.
+          토끼, 햄스터, 병아리 중 마음에 드는 캐릭터를 고르고 점프를 시작하세요.
+          얼굴 사진을 얹어 미리볼 수 있고, 2인 플레이에서는 낮은 플레이어 기준으로 화면이 따라옵니다.
         </p>
       </section>
 
-      <section class="panel">
-        <div class="hud">
-          <span id="height">Height 0m</span>
-          <span id="status">좌우 이동 후 발판을 밟아 점프</span>
-          <button id="restart" type="button">Restart</button>
-        </div>
+      <section class="layout">
+        <aside class="panel setup-panel" aria-labelledby="setupTitle">
+          <div class="setup-panel__head">
+            <div>
+              <p class="section-kicker">Start Setup</p>
+              <h2 id="setupTitle">플레이 설정</h2>
+            </div>
 
-        <div id="arena" class="arena">
-          <div id="world" class="world">
-            <div id="player" class="player"></div>
+            <div class="count-switch" role="group" aria-label="플레이어 수">
+              <button type="button" class="count-switch__button is-active" data-player-count="1">
+                1P
+              </button>
+              <button type="button" class="count-switch__button" data-player-count="2">2P</button>
+            </div>
           </div>
-          <div class="controls" aria-label="모바일 이동 버튼">
-            <button id="leftBtn" type="button" class="touch-btn">◀ 왼쪽</button>
-            <button id="rightBtn" type="button" class="touch-btn">오른쪽 ▶</button>
+
+          <p id="setupHint" class="setup-hint">
+            1P는 <strong>A / D</strong>, 2P는 <strong>방향키</strong>로 움직입니다.
+            모바일에서는 맵 아무 곳이나 눌러 좌우 입력합니다.
+          </p>
+
+          <div class="player-configs">
+            <article class="player-config" data-player-slot="0">
+              <div class="player-config__top">
+                <div>
+                  <p class="player-config__slot">1P</p>
+                  <h3 class="player-config__name" data-player-name="0">모찌 토끼</h3>
+                </div>
+
+                <label class="face-toggle">
+                  <input type="checkbox" class="face-enabled" />
+                  <span>얼굴 사진 사용</span>
+                </label>
+              </div>
+
+              <div class="player-config__preview" data-preview-slot="0"></div>
+              <div class="character-options" data-character-options="0"></div>
+
+              <div class="face-tools">
+                <label class="field">
+                  <span>얼굴 사진</span>
+                  <input type="file" accept="image/*" class="face-upload" />
+                </label>
+
+                <label class="field">
+                  <span>확대</span>
+                  <input type="range" min="80" max="180" value="100" class="face-scale" />
+                </label>
+
+                <label class="field">
+                  <span>좌우</span>
+                  <input type="range" min="-40" max="40" value="0" class="face-x" />
+                </label>
+
+                <label class="field">
+                  <span>상하</span>
+                  <input type="range" min="-40" max="40" value="0" class="face-y" />
+                </label>
+
+                <button type="button" class="ghost-button face-reset">기본 얼굴로</button>
+              </div>
+            </article>
+
+            <article class="player-config" data-player-slot="1">
+              <div class="player-config__top">
+                <div>
+                  <p class="player-config__slot">2P</p>
+                  <h3 class="player-config__name" data-player-name="1">푸딩 햄스터</h3>
+                </div>
+
+                <label class="face-toggle">
+                  <input type="checkbox" class="face-enabled" />
+                  <span>얼굴 사진 사용</span>
+                </label>
+              </div>
+
+              <div class="player-config__preview" data-preview-slot="1"></div>
+              <div class="character-options" data-character-options="1"></div>
+
+              <div class="face-tools">
+                <label class="field">
+                  <span>얼굴 사진</span>
+                  <input type="file" accept="image/*" class="face-upload" />
+                </label>
+
+                <label class="field">
+                  <span>확대</span>
+                  <input type="range" min="80" max="180" value="100" class="face-scale" />
+                </label>
+
+                <label class="field">
+                  <span>좌우</span>
+                  <input type="range" min="-40" max="40" value="0" class="face-x" />
+                </label>
+
+                <label class="field">
+                  <span>상하</span>
+                  <input type="range" min="-40" max="40" value="0" class="face-y" />
+                </label>
+
+                <button type="button" class="ghost-button face-reset">기본 얼굴로</button>
+              </div>
+            </article>
           </div>
-        </div>
+
+          <div class="setup-actions">
+            <button id="startGame" type="button" class="primary-action">현재 설정으로 시작</button>
+            <button id="restart" type="button" class="secondary-action">다시 시작</button>
+          </div>
+        </aside>
+
+        <section class="panel play-panel">
+          <div class="hud">
+            <div class="hud__group">
+              <div class="hud-card" data-hud-slot="0">
+                <span class="hud-card__label">1P Best</span>
+                <strong id="best1">0m</strong>
+                <span id="life1" class="hud-card__meta">준비</span>
+              </div>
+
+              <div class="hud-card" data-hud-slot="1">
+                <span class="hud-card__label">2P Best</span>
+                <strong id="best2">0m</strong>
+                <span id="life2" class="hud-card__meta">대기</span>
+              </div>
+            </div>
+
+            <div class="hud__status">
+              <span id="status">캐릭터를 고르고 시작해 보세요.</span>
+            </div>
+          </div>
+
+          <div id="arena" class="arena" aria-label="점프 게임 맵">
+            <div id="world" class="world"></div>
+
+            <div class="touch-hint" aria-hidden="true">
+              <span>왼쪽 터치</span>
+              <span>오른쪽 터치</span>
+            </div>
+
+            <div id="resultsOverlay" class="results-overlay" aria-live="polite">
+              <div class="results-card">
+                <p class="section-kicker">Round Result</p>
+                <h2 class="results-title">이번 점프 결과</h2>
+                <div class="results-list">
+                  <div class="result-row" data-result-slot="0">
+                    <span class="result-row__label" id="resultName1">1P</span>
+                    <strong id="resultScore1">0m</strong>
+                  </div>
+                  <div class="result-row" data-result-slot="1">
+                    <span class="result-row__label" id="resultName2">2P</span>
+                    <strong id="resultScore2">0m</strong>
+                  </div>
+                </div>
+                <div id="resultLead" class="results-lead">다시 시작해서 기록을 더 올려보세요.</div>
+                <div class="results-actions">
+                  <button id="restartFromResults" type="button" class="primary-action">한 판 더 하기</button>
+                  <button id="exitAfterResults" type="button" class="secondary-action">허브로 가기</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </section>
     </main>
 
+    <script src="/games/registry.js"></script>
+    <script src="/shared/bootstrap.js"></script>
     <script src="./game.js"></script>
   </body>
 </html>

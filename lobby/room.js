@@ -12,7 +12,16 @@ const PLAYER_COLORS = [
 
 // Built from games/registry.js (loaded before this script via room.html)
 const GAME_META = Object.fromEntries(
-  (window.GAME_REGISTRY || []).map(g => [g.id, { label: g.title, icon: g.icon, path: g.path, type: g.type }])
+  (window.GAME_REGISTRY || []).map(g => [g.id, {
+    label: g.title,
+    icon: g.icon,
+    path: g.path,
+    type: g.type,
+    resultLabel: g.resultLabel || '점수',
+    resultUnit: g.resultUnit || '점',
+    resultScale: typeof g.resultScale === 'number' ? g.resultScale : 1,
+    resultDecimals: typeof g.resultDecimals === 'number' ? g.resultDecimals : 0,
+  }])
 );
 const GAME_TYPE_LABELS = {
   SOLO: '솔로',
@@ -35,6 +44,20 @@ let myStartVote = false;
 let currentGameVotes = {};
 let currentStartVotes = { count: 0, total: 0 };
 let currentGame = null;
+
+function getCurrentGameMeta() {
+  return currentGame ? GAME_META[currentGame] : null;
+}
+
+function formatScore(meta, rawScore) {
+  const score = typeof rawScore === 'number' ? rawScore : 0;
+  const scale = meta?.resultScale ?? 1;
+  const decimals = meta?.resultDecimals ?? 0;
+  const unit = meta?.resultUnit ?? '점';
+  const scaled = score * scale;
+
+  return `${scaled.toFixed(decimals)}${unit}`;
+}
 
 function renderGameList() {
   const list = document.getElementById('game-list');
@@ -136,19 +159,27 @@ function onOpen() {
 
   // If returning from a game with a pending result, submit it now
   let submittedLastResult = false;
+  let submittedResult = null;
   try {
     const raw = sessionStorage.getItem('lastGameResult');
     if (raw) {
       const result = JSON.parse(raw);
       if (result.code === roomCode && typeof result.score === 'number') {
+        currentGame = result.gameId || currentGame;
         send({ type: 'submit_result', score: result.score, gameId: result.gameId });
         submittedLastResult = true;
+        submittedResult = result;
       }
       sessionStorage.removeItem('lastGameResult');
     }
   } catch { /* ignore */ }
   if (submittedLastResult) {
-    appendSystemChat('방금 플레이한 결과를 제출했습니다.');
+    const meta = getCurrentGameMeta();
+    appendSystemChat(
+      meta && submittedResult
+        ? `${meta.label} 기록 ${formatScore(meta, submittedResult.score)} 제출을 시도했습니다.`
+        : '방금 플레이한 결과를 제출했습니다.'
+    );
   }
 
   if (preselectedGameId && GAME_META[preselectedGameId]) {
@@ -462,6 +493,9 @@ function renderScoreboard(results, submitted, total, final) {
   const overlay = document.getElementById('scoreboard-overlay');
   const list = document.getElementById('scoreboard-list');
   const status = document.getElementById('scoreboard-status');
+  const gameName = document.getElementById('scoreboard-game-name');
+  const summary = document.getElementById('scoreboard-summary');
+  const meta = getCurrentGameMeta();
 
   list.innerHTML = '';
   results.forEach(entry => {
@@ -470,12 +504,17 @@ function renderScoreboard(results, submitted, total, final) {
     li.innerHTML =
       `<span class="scoreboard-rank">${entry.rank}</span>` +
       `<span class="scoreboard-name">${entry.name}</span>` +
-      `<span class="scoreboard-score">${entry.score}점</span>`;
+      `<span class="scoreboard-score">${formatScore(meta, entry.score)}</span>`;
     list.appendChild(li);
   });
 
+  gameName.textContent = meta ? meta.label : '이번 게임 결과';
+  summary.textContent = meta
+    ? `${meta.resultLabel} 기준으로 순위를 집계합니다.`
+    : '이번 게임의 제출 기록을 집계합니다.';
+
   status.textContent = final
-    ? '최종 결과'
+    ? `최종 결과 · ${results.length}명 집계 완료`
     : `${submitted ?? 0} / ${total ?? '?'} 제출 완료`;
 
   overlay.classList.add('active');

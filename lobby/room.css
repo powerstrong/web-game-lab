@@ -444,6 +444,20 @@ body {
   width: min(100%, 420px);
 }
 
+.scoreboard-game-name {
+  margin-top: 8px;
+  font-family: "Outfit", "Noto Sans KR", sans-serif;
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.scoreboard-summary {
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .scoreboard-list {
   margin: 16px 0 0;
   padding: 0;
@@ -477,6 +491,7 @@ body {
   font-family: "Outfit", sans-serif;
   font-weight: 700;
   color: var(--accent-strong);
+  white-space: nowrap;
 }
 
 .scoreboard-status {
