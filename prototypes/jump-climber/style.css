@@ -569,7 +569,8 @@ h2 {
   --move-tilt: 0deg;
   position: absolute;
   inset: 8% 0 0;
-  transform: translate(var(--move-x), var(--move-y)) rotate(var(--move-tilt));
+  transform: translate(var(--move-x), var(--move-y)) rotate(var(--move-tilt)) scale(var(--sprite-scale, 1));
+  transform-origin: center center;
   transition:
     transform 140ms ease,
     filter 140ms ease;

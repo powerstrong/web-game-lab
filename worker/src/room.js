@@ -16,10 +16,32 @@ function randomHex(len) {
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+const JUMP_GAME_SETTINGS = {
+  worldWidth: 500,
+  arenaHeight: 640,
+  gravity: 0.42,
+  moveSpeed: 4.8,
+  normalJump: -11.8,
+  boostJump: -16.8,
+  platformGap: 96,
+  platformWidthMin: 92,
+  platformWidthMax: 150,
+  startLineY: 540,
+  tickMs: 33,
+};
+
+const PLATFORM_KINDS = ['leaf', 'cloud', 'cake'];
+
 export class GameRoom {
   constructor(state, env) {
     this.state = state;
     this.env = env;
+    this.jumpGame = null;
+    this.jumpLoop = null;
   }
 
   // Returns [{ws, player}] for all connected, registered players
@@ -27,6 +49,14 @@ export class GameRoom {
     return this.state.getWebSockets()
       .map(ws => ({ ws, player: ws.deserializeAttachment() }))
       .filter(({ player }) => player != null);
+  }
+
+  _getLobbySessions() {
+    return this._getSessions().filter(({ player }) => player.role !== 'game');
+  }
+
+  _getGameSessions(gameId) {
+    return this._getSessions().filter(({ player }) => player.role === 'game' && player.gameId === gameId);
   }
 
   _broadcastAll(msg) {
@@ -44,12 +74,340 @@ export class GameRoom {
     }
   }
 
+  _broadcastGame(msg, gameId = 'jump-climber') {
+    const text = JSON.stringify(msg);
+    for (const { ws } of this._getGameSessions(gameId)) {
+      try { ws.send(text); } catch { /* ignore closed */ }
+    }
+  }
+
   _buildGameVotes(sessions) {
     const tally = {};
     for (const { player } of sessions) {
       if (player.gameVote) tally[player.gameVote] = (tally[player.gameVote] || 0) + 1;
     }
     return tally;
+  }
+
+  _buildRankedScores(scores) {
+    return Object.values(scores)
+      .sort((a, b) => b.score - a.score)
+      .map((entry, i) => ({ ...entry, rank: i + 1 }));
+  }
+
+  _createJumpPlayer(rosterPlayer, slot, totalPlayers, previous = null) {
+    const positions = totalPlayers === 1 ? [228] : [155, 300];
+    return {
+      id: rosterPlayer.id,
+      name: rosterPlayer.name,
+      slot,
+      colorIndex: rosterPlayer.colorIndex,
+      characterId: previous?.characterId || 'mochi-rabbit',
+      connected: previous?.connected || false,
+      inputDirection: 0,
+      x: positions[slot] ?? 228,
+      y: JUMP_GAME_SETTINGS.startLineY - 42 - slot * 10,
+      width: 46,
+      height: 46,
+      vx: 0,
+      vy: JUMP_GAME_SETTINGS.normalJump,
+      bestHeight: 0,
+      alive: true,
+    };
+  }
+
+  _createJumpPlatform(game, y, isBase = false) {
+    const width = isBase
+      ? 200
+      : Math.round(Math.random() * (JUMP_GAME_SETTINGS.platformWidthMax - JUMP_GAME_SETTINGS.platformWidthMin) + JUMP_GAME_SETTINGS.platformWidthMin);
+    const x = isBase
+      ? (JUMP_GAME_SETTINGS.worldWidth - width) / 2
+      : Math.random() * (JUMP_GAME_SETTINGS.worldWidth - width - 20) + 10;
+    const kind = isBase ? 'base' : PLATFORM_KINDS[Math.floor(Math.random() * PLATFORM_KINDS.length)];
+    const platform = { id: `platform-${game.nextPlatformId++}`, x, y, width, height: 18, kind };
+
+    if (!isBase && Math.random() < 0.2) {
+      this._spawnJumpBoost(game, platform);
+    }
+
+    return platform;
+  }
+
+  _spawnJumpBoost(game, platform) {
+    const kind = Math.random() < 0.5 ? 'rocket' : 'star';
+    game.boosts.push({
+      id: `boost-${game.nextBoostId++}`,
+      x: platform.x + platform.width / 2 - 14,
+      y: platform.y - 38,
+      size: 28,
+      kind,
+    });
+  }
+
+  _ensureJumpGame(roster) {
+    if (this.jumpGame) return this.jumpGame;
+
+    const participants = roster.slice(0, 2).map((player, slot) => ({ ...player, slot }));
+    this.jumpGame = {
+      roster: participants,
+      expectedPlayers: participants.length,
+      players: {},
+      platforms: [],
+      boosts: [],
+      cameraY: 0,
+      nextPlatformId: 1,
+      nextBoostId: 1,
+      running: false,
+    };
+
+    participants.forEach((player, slot) => {
+      this.jumpGame.players[player.id] = this._createJumpPlayer(player, slot, participants.length);
+    });
+
+    this._resetJumpGameWorld();
+    return this.jumpGame;
+  }
+
+  _resetJumpGameWorld() {
+    if (!this.jumpGame) return;
+
+    const previousPlayers = this.jumpGame.players || {};
+    const roster = this.jumpGame.roster;
+    this.jumpGame.platforms = [];
+    this.jumpGame.boosts = [];
+    this.jumpGame.cameraY = 0;
+    this.jumpGame.nextPlatformId = 1;
+    this.jumpGame.nextBoostId = 1;
+    this.jumpGame.players = {};
+    this.jumpGame.running = false;
+
+    roster.forEach((player, slot) => {
+      this.jumpGame.players[player.id] = this._createJumpPlayer(
+        player,
+        slot,
+        roster.length,
+        previousPlayers[player.id]
+      );
+    });
+
+    const base = this._createJumpPlatform(this.jumpGame, JUMP_GAME_SETTINGS.startLineY, true);
+    this.jumpGame.platforms.push(base);
+
+    for (let i = 1; i < 32; i += 1) {
+      this.jumpGame.platforms.push(
+        this._createJumpPlatform(this.jumpGame, JUMP_GAME_SETTINGS.startLineY - i * JUMP_GAME_SETTINGS.platformGap)
+      );
+    }
+  }
+
+  _buildJumpSnapshot() {
+    if (!this.jumpGame) return null;
+
+    return {
+      type: 'jump_state',
+      running: this.jumpGame.running,
+      waitingFor: Math.max(0, this.jumpGame.expectedPlayers - this._getGameSessions('jump-climber').length),
+      expectedPlayers: this.jumpGame.expectedPlayers,
+      cameraY: this.jumpGame.cameraY,
+      players: this.jumpGame.roster.map(({ id }) => ({ ...this.jumpGame.players[id] })),
+      platforms: this.jumpGame.platforms.map((platform) => ({ ...platform })),
+      boosts: this.jumpGame.boosts.map((boost) => ({ ...boost })),
+    };
+  }
+
+  _broadcastJumpSnapshot() {
+    const snapshot = this._buildJumpSnapshot();
+    if (!snapshot) return;
+    this._broadcastGame(snapshot, 'jump-climber');
+  }
+
+  _startJumpLoop() {
+    if (this.jumpLoop) clearInterval(this.jumpLoop);
+    this.jumpLoop = setInterval(() => {
+      this._tickJumpGame().catch(() => {});
+    }, JUMP_GAME_SETTINGS.tickMs);
+  }
+
+  _stopJumpLoop() {
+    if (this.jumpLoop) {
+      clearInterval(this.jumpLoop);
+      this.jumpLoop = null;
+    }
+  }
+
+  _ensureJumpPlatformsAbove() {
+    if (!this.jumpGame) return;
+
+    while (Math.min(...this.jumpGame.platforms.map((platform) => platform.y)) > this.jumpGame.cameraY - 1500) {
+      const newTop =
+        Math.min(...this.jumpGame.platforms.map((platform) => platform.y)) - JUMP_GAME_SETTINGS.platformGap;
+      this.jumpGame.platforms.push(this._createJumpPlatform(this.jumpGame, newTop));
+    }
+
+    const cleanupLimit = this.jumpGame.cameraY + JUMP_GAME_SETTINGS.arenaHeight + 180;
+    this.jumpGame.platforms = this.jumpGame.platforms.filter((platform) => platform.y <= cleanupLimit);
+    this.jumpGame.boosts = this.jumpGame.boosts.filter((boost) => boost.y <= cleanupLimit);
+  }
+
+  _handleJumpLanding(player, previousY) {
+    if (!this.jumpGame || !player.alive || player.vy <= 0) return;
+
+    const feetNow = player.y + player.height;
+    const feetBefore = previousY + player.height;
+
+    for (const platform of this.jumpGame.platforms) {
+      const horizontalHit = player.x + player.width > platform.x && player.x < platform.x + platform.width;
+      const passedTop = feetBefore <= platform.y && feetNow >= platform.y;
+
+      if (horizontalHit && passedTop) {
+        player.y = platform.y - player.height;
+        player.vy = JUMP_GAME_SETTINGS.normalJump;
+        return;
+      }
+    }
+  }
+
+  _handleJumpBoostPickup(player) {
+    if (!this.jumpGame || !player.alive) return;
+
+    this.jumpGame.boosts = this.jumpGame.boosts.filter((boost) => {
+      const intersects = !(
+        player.x + player.width < boost.x ||
+        player.x > boost.x + boost.size ||
+        player.y + player.height < boost.y ||
+        player.y > boost.y + boost.size
+      );
+
+      if (intersects) {
+        player.vy = JUMP_GAME_SETTINGS.boostJump;
+        return false;
+      }
+
+      return true;
+    });
+  }
+
+  _updateJumpCamera() {
+    if (!this.jumpGame) return;
+    const alivePlayers = Object.values(this.jumpGame.players).filter((player) => player.alive);
+    if (alivePlayers.length === 0) return;
+
+    const lowestVisiblePlayerY = Math.max(...alivePlayers.map((player) => player.y));
+    const target = Math.min(this.jumpGame.cameraY, lowestVisiblePlayerY - 320);
+    this.jumpGame.cameraY += (target - this.jumpGame.cameraY) * 0.16;
+  }
+
+  async _finishJumpGame() {
+    if (!this.jumpGame) return;
+
+    this.jumpGame.running = false;
+    this._stopJumpLoop();
+
+    const scores = {};
+    this.jumpGame.roster.forEach(({ id }) => {
+      const player = this.jumpGame.players[id];
+      scores[id] = {
+        name: player.name,
+        score: player.bestHeight,
+        colorIndex: player.colorIndex,
+        slot: player.slot,
+        characterId: player.characterId,
+      };
+    });
+
+    await this.state.storage.put('scores', scores);
+    await this.state.storage.put('phase', 'results');
+
+    const ranked = this._buildRankedScores(scores);
+    this._broadcastGame({
+      type: 'scoreboard',
+      results: ranked,
+      submitted: ranked.length,
+      total: this.jumpGame.expectedPlayers,
+      final: true,
+    }, 'jump-climber');
+  }
+
+  async _tickJumpGame() {
+    if (!this.jumpGame || !this.jumpGame.running) return;
+
+    this._ensureJumpPlatformsAbove();
+
+    Object.values(this.jumpGame.players).forEach((player) => {
+      if (!player.alive) return;
+
+      player.vx = player.inputDirection * JUMP_GAME_SETTINGS.moveSpeed;
+      player.x += player.vx;
+      player.x = clamp(player.x, 0, JUMP_GAME_SETTINGS.worldWidth - player.width);
+
+      const previousY = player.y;
+      player.vy += JUMP_GAME_SETTINGS.gravity;
+      player.y += player.vy;
+
+      this._handleJumpLanding(player, previousY);
+      this._handleJumpBoostPickup(player);
+
+      const climbed = Math.max(0, Math.round((JUMP_GAME_SETTINGS.startLineY - player.y) / 10));
+      player.bestHeight = Math.max(player.bestHeight, climbed);
+
+      if (player.y > this.jumpGame.cameraY + JUMP_GAME_SETTINGS.arenaHeight + 140) {
+        player.alive = false;
+        player.vx = 0;
+        player.vy = 0;
+      }
+    });
+
+    this._updateJumpCamera();
+    this._broadcastJumpSnapshot();
+
+    if (Object.values(this.jumpGame.players).every((player) => !player.alive)) {
+      await this._finishJumpGame();
+    }
+  }
+
+  async _handleJoinGame(ws, msg) {
+    const currentGame = (await this.state.storage.get('currentGame')) || null;
+    const phase = (await this.state.storage.get('phase')) || 'lobby';
+    const roster = ((await this.state.storage.get('gameRoster')) || []).slice(0, 2);
+
+    if (currentGame !== 'jump-climber' || msg.gameId !== 'jump-climber' || phase !== 'playing') {
+      ws.send(JSON.stringify({ type: 'error', message: '지금은 말랑프렌즈 점프 실시간 방에 합류할 수 없습니다.' }));
+      return;
+    }
+
+    const rosterPlayer = roster.find((player) => player.id === msg.playerId) || null;
+    if (!rosterPlayer) {
+      ws.send(JSON.stringify({ type: 'error', message: '방 플레이어 정보가 맞지 않습니다. 대기실에서 다시 시작해 주세요.' }));
+      return;
+    }
+
+    const game = this._ensureJumpGame(roster);
+    const player = game.players[rosterPlayer.id];
+    player.connected = true;
+    player.inputDirection = 0;
+    player.characterId = msg.characterId || player.characterId;
+
+    ws.serializeAttachment({
+      ...rosterPlayer,
+      role: 'game',
+      gameId: 'jump-climber',
+      slot: player.slot,
+      characterId: player.characterId,
+    });
+
+    if (this._getGameSessions('jump-climber').length >= game.expectedPlayers && !game.running) {
+      game.running = true;
+      this._startJumpLoop();
+    }
+
+    this._broadcastJumpSnapshot();
+  }
+
+  _handlePlayerInput(player, msg) {
+    if (!this.jumpGame || player.role !== 'game' || player.gameId !== 'jump-climber') return;
+    const target = this.jumpGame.players[player.id];
+    if (!target) return;
+    target.inputDirection = clamp(Number(msg.direction) || 0, -1, 1);
   }
 
   // ── fetch ──────────────────────────────────────────────────────────────────
@@ -84,9 +442,11 @@ export class GameRoom {
 
     switch (msg.type) {
       case 'join':      await this._handleJoin(ws, msg);                        break;
+      case 'join_game': await this._handleJoinGame(ws, msg);                    break;
       case 'chat':      if (player) await this._handleChat(player, msg);        break;
       case 'vote_game':     if (player) await this._handleVoteGame(ws, player, msg);      break;
       case 'vote_start':    if (player) await this._handleVoteStart(ws, player, msg);     break;
+      case 'player_input':  if (player) this._handlePlayerInput(player, msg);             break;
       case 'submit_result': if (player) await this._handleSubmitResult(player, msg);      break;
       case 'rematch':       if (player) await this._handleRematch();                       break;
       case 'ping':          ws.send(JSON.stringify({ type: 'pong' }));                    break;
@@ -105,17 +465,20 @@ export class GameRoom {
     const color = COLORS[colorIndex % COLORS.length];
     await this.state.storage.put('colorIndex', colorIndex + 1);
 
-    const playerData = { id: randomHex(6), name, color, colorIndex, gameVote: null, startVote: false };
+    const playerData = { id: randomHex(6), name, color, colorIndex, gameVote: null, startVote: false, role: 'lobby' };
     ws.serializeAttachment(playerData);
 
-    const sessions  = this._getSessions();
+    const sessions  = this._getLobbySessions();
     const players   = sessions.map(s => s.player);
     const chatLog   = (await this.state.storage.get('chatLog')) || [];
     const code      = (await this.state.storage.get('code')) || '';
     const phase     = (await this.state.storage.get('phase')) || 'lobby';
     const gameVotes = this._buildGameVotes(sessions);
+    const currentGame = (await this.state.storage.get('currentGame')) || null;
+    const scores = (await this.state.storage.get('scores')) || {};
+    const results = phase === 'results' ? this._buildRankedScores(scores) : null;
 
-    ws.send(JSON.stringify({ type: 'welcome', playerId: playerData.id, code, players, chatLog, gameVotes, phase }));
+    ws.send(JSON.stringify({ type: 'welcome', playerId: playerData.id, code, players, chatLog, gameVotes, phase, currentGame, results }));
     this._broadcastExcept({ type: 'player_joined', player: playerData }, ws);
     this._broadcastAll({ type: 'players_update', players });
   }
@@ -140,7 +503,7 @@ export class GameRoom {
 
     ws.serializeAttachment({ ...player, gameVote: gameId });
 
-    const sessions  = this._getSessions();
+    const sessions  = this._getLobbySessions();
     const gameVotes = this._buildGameVotes(sessions);
     this._broadcastAll({ type: 'game_vote_update', votes: gameVotes });
     await this._checkStartCondition(sessions);
@@ -150,7 +513,7 @@ export class GameRoom {
     const vote = msg.vote !== false;
     ws.serializeAttachment({ ...player, startVote: vote });
 
-    const sessions   = this._getSessions();
+    const sessions   = this._getLobbySessions();
     const startCount = sessions.filter(s => s.player.startVote).length;
     this._broadcastAll({ type: 'start_vote_update', count: startCount, total: sessions.length });
     await this._checkStartCondition(sessions);
@@ -181,6 +544,16 @@ export class GameRoom {
   }
 
   async _startCountdown(gameId) {
+    await this.state.storage.put('currentGame', gameId);
+    await this.state.storage.put('gameRoster', this._getLobbySessions().map(({ player }) => ({
+      id: player.id,
+      name: player.name,
+      colorIndex: player.colorIndex,
+      color: player.color,
+    })));
+    await this.state.storage.delete('scores');
+    this.jumpGame = null;
+    this._stopJumpLoop();
     await this.state.storage.put('phase', 'countdown');
     for (const seconds of [3, 2, 1]) {
       this._broadcastAll({ type: 'countdown', seconds });
@@ -196,13 +569,10 @@ export class GameRoom {
     scores[player.id] = { name: player.name, score, colorIndex: player.colorIndex };
     await this.state.storage.put('scores', scores);
 
-    const sessions = this._getSessions();
-    const total = sessions.length;
+    const roster = (await this.state.storage.get('gameRoster')) || [];
+    const total = Math.max(roster.length, Object.keys(scores).length);
     const submitted = Object.keys(scores).length;
-
-    const ranked = Object.values(scores)
-      .sort((a, b) => b.score - a.score)
-      .map((entry, i) => ({ ...entry, rank: i + 1 }));
+    const ranked = this._buildRankedScores(scores);
 
     this._broadcastAll({ type: 'scoreboard', results: ranked, submitted, total, final: submitted >= total });
 
@@ -213,13 +583,25 @@ export class GameRoom {
 
   async _handleRematch() {
     await this.state.storage.delete('scores');
+    await this.state.storage.delete('currentGame');
+    await this.state.storage.delete('gameRoster');
+    this.jumpGame = null;
+    this._stopJumpLoop();
     // Reset player votes
-    for (const { ws, player } of this._getSessions()) {
+    for (const { ws, player } of this._getLobbySessions()) {
       ws.serializeAttachment({ ...player, gameVote: null, startVote: false });
     }
     await this.state.storage.put('phase', 'lobby');
-    const sessions = this._getSessions();
-    this._broadcastAll({ type: 'room_state', players: sessions.map(s => s.player), gameVotes: {}, startVotes: 0 });
+    const sessions = this._getLobbySessions();
+    this._broadcastAll({
+      type: 'room_state',
+      phase: 'lobby',
+      currentGame: null,
+      players: sessions.map(s => s.player),
+      gameVotes: {},
+      startVotes: 0,
+      results: [],
+    });
   }
 
   async _removePlayer(ws) {
@@ -227,7 +609,25 @@ export class GameRoom {
     ws.serializeAttachment(null);
     if (!player) return;
 
-    const sessions = this._getSessions(); // excludes the null'd player
+    if (player.role === 'game' && player.gameId === 'jump-climber' && this.jumpGame?.players[player.id]) {
+      const target = this.jumpGame.players[player.id];
+      target.connected = false;
+      target.inputDirection = 0;
+      if (target.alive) {
+        target.alive = false;
+        target.vx = 0;
+        target.vy = 0;
+      }
+
+      if (Object.values(this.jumpGame.players).every((entry) => !entry.alive)) {
+        await this._finishJumpGame();
+      } else {
+        this._broadcastJumpSnapshot();
+      }
+      return;
+    }
+
+    const sessions = this._getLobbySessions(); // excludes the null'd player
     const players  = sessions.map(s => s.player);
     this._broadcastAll({ type: 'player_left', playerId: player.id, name: player.name });
     this._broadcastAll({ type: 'players_update', players });

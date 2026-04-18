@@ -94,6 +94,16 @@ const state = {
   platforms: [],
   boosts: [],
   resultSubmitted: false,
+  network: {
+    ws: null,
+    joined: false,
+    snapshot: null,
+    lastSentDirection: null,
+    inputIntervalId: 0,
+    platformEls: new Map(),
+    boostEls: new Map(),
+    playerEls: new Map(),
+  },
 };
 
 const configRefs = playerConfigCards.map((card, slot) => ({
@@ -105,6 +115,7 @@ const configRefs = playerConfigCards.map((card, slot) => ({
   faceEnabled: card.querySelector(".face-enabled"),
   faceUpload: card.querySelector(".face-upload"),
   faceScale: card.querySelector(".face-scale"),
+  spriteScale: card.querySelector(".sprite-scale"),
   faceX: card.querySelector(".face-x"),
   faceY: card.querySelector(".face-y"),
   faceReset: card.querySelector(".face-reset"),
@@ -120,6 +131,7 @@ function createDefaultSetup(characterId) {
       x: 0,
       y: 0,
     },
+    spriteScale: 1,
   };
 }
 
@@ -155,7 +167,8 @@ function createAvatarMarkup(setup, label, compact = false, pose = "preview") {
   const transform = setup.faceTransform;
   const faceBox = character.faceBox;
   const style =
-    `--face-scale:${transform.scale}; --face-x:${transform.x}; --face-y:${transform.y}; ` +
+    `--face-scale:${transform.scale}; --sprite-scale:${setup.spriteScale || 1}; ` +
+    `--face-x:${transform.x}; --face-y:${transform.y}; ` +
     `--face-left:${faceBox.left}%; --face-top:${faceBox.top}%; --face-size:${faceBox.size}%;`;
 
   return `
@@ -195,11 +208,46 @@ function setStatus(message) {
   statusEl.textContent = message;
 }
 
-function hideResultsOverlay() {
-  resultsOverlay.classList.remove("is-active");
+function buildRoomWebSocketUrl(code) {
+  const base = (window.WORKER_URL || window.location.origin).replace(/^http/, "ws");
+  return `${base}/api/rooms/${encodeURIComponent(code)}`;
+}
+
+function getPoseFromStateLike(player) {
+  if (player.vy > 0.8) return "fall_neutral";
+  if (player.vx < -0.35) return "jump_left";
+  if (player.vx > 0.35) return "jump_right";
+  return "jump_neutral";
+}
+
+function clearNetworkWorld() {
+  state.network.platformEls.forEach((el) => el.remove());
+  state.network.boostEls.forEach((el) => el.remove());
+  state.network.playerEls.forEach(({ el }) => el.remove());
+  state.network.platformEls.clear();
+  state.network.boostEls.clear();
+  state.network.playerEls.clear();
+  state.network.snapshot = null;
+}
+
+function stopNetworkInputLoop() {
+  if (state.network.inputIntervalId) {
+    clearInterval(state.network.inputIntervalId);
+    state.network.inputIntervalId = 0;
+  }
 }
 
 function exitSession() {
+  stopNetworkInputLoop();
+  if (state.network.ws) {
+    try {
+      state.network.ws.close();
+    } catch {
+      // ignore close errors
+    }
+    state.network.ws = null;
+  }
+
   if (gameBoot) {
     gameBoot.exit();
     return;
@@ -208,8 +256,12 @@ function exitSession() {
   window.location.href = "/";
 }
 
+function hideResultsOverlay() {
+  resultsOverlay.classList.remove("is-active");
+}
+
 function submitRoundResult() {
-  if (!gameBoot || !gameBoot.isMultiplayer || state.resultSubmitted) return;
+  if (!gameBoot || !gameBoot.isMultiplayer || state.resultSubmitted || isRoomSession) return;
 
   const submittedScore = Math.max(...state.players.map((player) => player.bestHeight), 0);
   gameBoot.submitResult({ score: submittedScore });
@@ -246,6 +298,219 @@ function showResultsOverlay() {
   resultsOverlay.classList.add("is-active");
 }
 
+function showNetworkResultsOverlay(results) {
+  const bySlot = new Map(results.map((entry) => [entry.slot, entry]));
+  const leader = results[0] || null;
+
+  resultLeadEl.textContent = leader
+    ? `${leader.name} 승리! ${leader.score}m 기록으로 대기실 스코어보드에도 반영됩니다.`
+    : "라운드가 끝났습니다. 대기실로 돌아가 결과를 확인해 주세요.";
+
+  for (let slot = 0; slot < 2; slot += 1) {
+    const entry = bySlot.get(slot);
+    resultRows[slot].classList.toggle("is-hidden", !entry);
+    if (!entry) continue;
+    resultNameEls[slot].textContent = `${slotLabel(slot)} · ${entry.name}`;
+    resultScoreEls[slot].textContent = `${entry.score}m`;
+  }
+
+  restartFromResultsButton.textContent = "대기실로 복귀";
+  exitAfterResultsButton.textContent = "허브로 가기";
+  resultsOverlay.classList.add("is-active");
+}
+
+function updateHudFromSnapshot(players) {
+  for (let slot = 0; slot < 2; slot += 1) {
+    const player = players.find((entry) => entry.slot === slot);
+    const active = Boolean(player);
+
+    hudCards[slot].classList.toggle("is-hidden", !active);
+    bestEls[slot].textContent = player ? `${player.bestHeight}m` : "0m";
+    lifeEls[slot].textContent = player ? (player.alive ? `${player.name} 생존` : `${player.name} 탈락`) : "대기";
+  }
+}
+
+function syncEntityMap(map, items, createFn, updateFn) {
+  const nextIds = new Set(items.map((item) => item.id));
+  items.forEach((item) => {
+    if (!map.has(item.id)) {
+      map.set(item.id, createFn(item));
+    }
+    updateFn(map.get(item.id), item);
+  });
+
+  for (const [id, entry] of map.entries()) {
+    if (nextIds.has(id)) continue;
+    (entry.el || entry).remove();
+    map.delete(id);
+  }
+}
+
+function renderNetworkSnapshot(snapshot) {
+  state.network.snapshot = snapshot;
+
+  syncEntityMap(
+    state.network.platformEls,
+    snapshot.platforms || [],
+    (platform) => {
+      const el = document.createElement("div");
+      el.className = `platform platform--${platform.kind}`;
+      el.style.width = `${platform.width}px`;
+      worldEl.appendChild(el);
+      return el;
+    },
+    (el, platform) => {
+      el.className = `platform platform--${platform.kind}`;
+      el.style.width = `${platform.width}px`;
+      el.style.transform = `translate(${platform.x}px, ${platform.y - snapshot.cameraY}px)`;
+    }
+  );
+
+  syncEntityMap(
+    state.network.boostEls,
+    snapshot.boosts || [],
+    (boost) => {
+      const el = document.createElement("div");
+      el.className = `boost boost--${boost.kind}`;
+      el.textContent = BOOST_META[boost.kind]?.label || "";
+      worldEl.appendChild(el);
+      return el;
+    },
+    (el, boost) => {
+      el.className = `boost boost--${boost.kind}`;
+      el.textContent = BOOST_META[boost.kind]?.label || "";
+      el.style.transform = `translate(${boost.x}px, ${boost.y - snapshot.cameraY}px)`;
+    }
+  );
+
+  syncEntityMap(
+    state.network.playerEls,
+    snapshot.players || [],
+    (player) => {
+      const el = document.createElement("div");
+      el.className = "player";
+      worldEl.appendChild(el);
+      return { el, avatarEl: null, spriteEl: null, pose: null, characterId: null };
+    },
+    (entry, player) => {
+      const pose = getPoseFromStateLike(player);
+      if (entry.characterId !== player.characterId || entry.pose !== pose) {
+        entry.el.innerHTML = createAvatarMarkup(
+          { ...createDefaultSetup(player.characterId), characterId: player.characterId },
+          `${player.slot + 1}P`,
+          false,
+          pose
+        );
+        entry.avatarEl = entry.el.querySelector(".avatar");
+        entry.spriteEl = entry.el.querySelector(".avatar__sprite");
+        entry.characterId = player.characterId;
+        entry.pose = pose;
+      }
+
+      entry.el.classList.toggle("is-eliminated", !player.alive);
+      if (entry.avatarEl) {
+        entry.avatarEl.classList.toggle("is-left", player.vx < -0.35);
+        entry.avatarEl.classList.toggle("is-right", player.vx > 0.35);
+        entry.avatarEl.classList.toggle("is-falling", player.vy > 0.8);
+        entry.avatarEl.classList.toggle("is-rising", player.vy <= 0.8);
+      }
+      entry.el.style.transform = `translate(${player.x}px, ${player.y - snapshot.cameraY}px)`;
+    }
+  );
+
+  updateHudFromSnapshot(snapshot.players || []);
+
+  if (!snapshot.running && snapshot.waitingFor > 0) {
+    setStatus(`친구 접속 대기 중... ${snapshot.expectedPlayers - snapshot.waitingFor}/${snapshot.expectedPlayers} 준비`);
+  } else if (snapshot.running) {
+    const aliveCount = (snapshot.players || []).filter((player) => player.alive).length;
+    setStatus(aliveCount > 1 ? "같은 맵에서 함께 점프 중!" : "한 명만 남았습니다. 끝까지 올라가세요!");
+  }
+}
+
+function sendNetworkInput(direction) {
+  if (!state.network.ws || state.network.ws.readyState !== WebSocket.OPEN) return;
+  state.network.ws.send(JSON.stringify({ type: "player_input", direction }));
+}
+
+function startNetworkInputLoop() {
+  stopNetworkInputLoop();
+  state.network.lastSentDirection = null;
+  state.network.inputIntervalId = window.setInterval(() => {
+    if (!state.network.ws || state.network.ws.readyState !== WebSocket.OPEN) return;
+    const direction = getPlayerDirection(0);
+    if (direction === state.network.lastSentDirection) return;
+    state.network.lastSentDirection = direction;
+    sendNetworkInput(direction);
+  }, 50);
+}
+
+function handleNetworkMessage(msg) {
+  switch (msg.type) {
+    case "jump_state":
+      renderNetworkSnapshot(msg);
+      break;
+    case "scoreboard":
+      state.running = false;
+      showNetworkResultsOverlay(msg.results || []);
+      break;
+    case "error":
+      setStatus(msg.message || "방 플레이 연결 중 오류가 발생했습니다.");
+      break;
+    default:
+      break;
+  }
+}
+
+function connectNetworkGame() {
+  stopNetworkInputLoop();
+  if (state.network.ws) {
+    try {
+      state.network.ws.close();
+    } catch {
+      // ignore close errors
+    }
+    state.network.ws = null;
+  }
+
+  clearWorld();
+  clearNetworkWorld();
+
+  const ws = new WebSocket(buildRoomWebSocketUrl(gameBoot.code));
+  state.network.ws = ws;
+  state.running = true;
+
+  ws.addEventListener("open", () => {
+    ws.send(
+      JSON.stringify({
+        type: "join_game",
+        code: gameBoot.code,
+        name: gameBoot.name,
+        playerId: gameBoot.playerId,
+        gameId: gameBoot.gameId || "jump-climber",
+        characterId: state.setup[0].characterId,
+      })
+    );
+    startNetworkInputLoop();
+    setStatus("방에 합류했어요. 친구가 들어오면 같은 맵이 시작됩니다.");
+  });
+
+  ws.addEventListener("message", (event) => {
+    try {
+      handleNetworkMessage(JSON.parse(event.data));
+    } catch {
+      // ignore malformed packets
+    }
+  });
+
+  ws.addEventListener("close", () => {
+    stopNetworkInputLoop();
+    if (state.running) {
+      setStatus("방 연결이 끊어졌습니다. 다시 시작 버튼으로 재접속해 주세요.");
+    }
+  });
+}
+
 function renderSetupUI() {
   playerCountButtons.forEach((button) => {
     button.classList.toggle("is-active", Number(button.dataset.playerCount) === state.playerCount);
@@ -255,7 +520,8 @@ function renderSetupUI() {
     const setup = state.setup[slot];
     const character = getCharacter(setup.characterId);
     const isActiveSlot = slot < state.playerCount;
-    const slidersEnabled = Boolean(setup.faceEnabled && setup.faceUrl);
+    const slidersEnabled = Boolean(setup.faceEnabled && setup.faceUrl) && !isRoomSession;
+    const faceControlsLocked = isRoomSession;
 
     ref.card.classList.toggle("is-hidden", !isActiveSlot);
     ref.name.textContent = character.name;
@@ -263,14 +529,18 @@ function renderSetupUI() {
     ref.options.innerHTML = CHARACTER_LIST.map((item) =>
       createCharacterOptionMarkup(item, slot, item.id === setup.characterId)
     ).join("");
-    ref.faceEnabled.checked = setup.faceEnabled;
+    ref.faceEnabled.checked = faceControlsLocked ? false : setup.faceEnabled;
     ref.faceScale.value = Math.round(setup.faceTransform.scale * 100);
+    ref.spriteScale.value = Math.round((setup.spriteScale || 1) * 100);
     ref.faceX.value = setup.faceTransform.x;
     ref.faceY.value = setup.faceTransform.y;
+    ref.faceEnabled.disabled = faceControlsLocked;
+    ref.faceUpload.disabled = faceControlsLocked;
     ref.faceScale.disabled = !slidersEnabled;
+    ref.spriteScale.disabled = faceControlsLocked;
     ref.faceX.disabled = !slidersEnabled;
     ref.faceY.disabled = !slidersEnabled;
-    ref.faceReset.disabled = !setup.faceEnabled && !setup.faceUrl;
+    ref.faceReset.disabled = faceControlsLocked || (!setup.faceEnabled && !setup.faceUrl);
 
     ref.options.querySelectorAll(".character-option").forEach((option) => {
       option.addEventListener("click", () => {
@@ -635,6 +905,12 @@ function loop() {
 }
 
 function startGame() {
+  if (isRoomSession) {
+    hideResultsOverlay();
+    connectNetworkGame();
+    return;
+  }
+
   resetWorld();
   hideResultsOverlay();
 
@@ -659,6 +935,8 @@ function startGame() {
 }
 
 function endGame() {
+  if (isRoomSession) return;
+
   state.running = false;
   cancelAnimationFrame(state.rafId);
   updateHud();
@@ -678,15 +956,22 @@ function configureSessionMode() {
   }
 
   state.playerCount = 1;
+  state.setup[0].faceEnabled = false;
+  state.setup[0].faceUrl = "";
+  state.setup[1].faceEnabled = false;
+  state.setup[1].faceUrl = "";
   setupHintEl.innerHTML =
-    "방 플레이에서는 <strong>1P 기록</strong>만 제출됩니다. " +
-    "<strong>A / D</strong> 또는 화면 좌우 터치로 움직이고, 게임 종료 후 대기실로 복귀하세요.";
+    "방 플레이에서는 <strong>각 기기마다 캐릭터 1명</strong>을 맡아 같은 맵에서 동시에 점프합니다. " +
+    "<strong>A / D</strong> 또는 화면 좌우 터치로 움직이고, 캐릭터를 고른 뒤 방 합류를 누르세요.";
 
   const twoPlayerButton = playerCountButtons.find((button) => Number(button.dataset.playerCount) === 2);
   if (twoPlayerButton) {
     twoPlayerButton.disabled = true;
-    twoPlayerButton.title = "방 플레이에서는 1P 결과만 제출됩니다.";
+    twoPlayerButton.title = "방 플레이에서는 기기당 캐릭터 1명으로 같은 맵에 합류합니다.";
   }
+
+  startButton.textContent = "방 합류";
+  restartButton.textContent = "대기실로 복귀";
 }
 
 function updatePointerDirection(slot, clientX) {
@@ -770,6 +1055,12 @@ function bindSetupEvents() {
       noteConfigChange();
     });
 
+    ref.spriteScale.addEventListener("input", () => {
+      state.setup[slot].spriteScale = Number(ref.spriteScale.value) / 100;
+      renderSetupUI();
+      noteConfigChange();
+    });
+
     ref.faceX.addEventListener("input", () => {
       state.setup[slot].faceTransform.x = Number(ref.faceX.value);
       renderSetupUI();
@@ -785,13 +1076,20 @@ function bindSetupEvents() {
     ref.faceReset.addEventListener("click", () => {
       state.setup[slot].faceEnabled = false;
       state.setup[slot].faceTransform = { scale: 1, x: 0, y: 0 };
+      state.setup[slot].spriteScale = 1;
       renderSetupUI();
       noteConfigChange();
     });
   });
 
   startButton.addEventListener("click", startGame);
-  restartButton.addEventListener("click", startGame);
+  restartButton.addEventListener("click", () => {
+    if (isRoomSession) {
+      exitSession();
+      return;
+    }
+    startGame();
+  });
   restartFromResultsButton.addEventListener("click", () => {
     if (isRoomSession) {
       exitSession();
@@ -833,4 +1131,8 @@ bindSetupEvents();
 bindKeyboardEvents();
 renderSetupUI();
 updateHud();
-startGame();
+if (!isRoomSession) {
+  startGame();
+} else {
+  setStatus("캐릭터를 고르고 방 합류를 누르면 같은 맵에서 함께 시작합니다.");
+}

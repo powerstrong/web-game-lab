@@ -240,11 +240,15 @@ function handleMessage(msg) {
   switch (msg.type) {
     case 'welcome':
       myId = msg.playerId;
+      currentGame = msg.currentGame || currentGame;
       renderPlayers(msg.players || [], msg.gameVotes || {});
       renderGameVotes(msg.gameVotes || {});
       (msg.chatLog || []).forEach((m) => appendChat(m.name, m.text, m.colorIndex));
       currentStartVotes = { count: 0, total: (msg.players || []).length };
       renderStartTally();
+      if (msg.phase === 'results' && msg.results) {
+        renderScoreboard(msg.results, msg.results.length, msg.results.length, true);
+      }
       break;
 
     case 'join_ack':
@@ -253,10 +257,14 @@ function handleMessage(msg) {
 
     case 'room_state':
       document.getElementById('scoreboard-overlay')?.classList.remove('active');
+      currentGame = msg.currentGame || currentGame;
       renderPlayers(msg.players, msg.gameVotes || {});
       renderGameVotes(msg.gameVotes || {});
       currentStartVotes = { count: msg.startVotes || 0, total: (msg.players || []).length };
       renderStartTally();
+      if (msg.phase === 'results' && msg.results) {
+        renderScoreboard(msg.results, msg.results.length, msg.results.length, true);
+      }
       break;
 
     case 'player_joined':
@@ -450,7 +458,12 @@ function startCountdown(from) {
 function redirectToGame() {
   if (!currentGame || !GAME_META[currentGame]) return;
   const target = GAME_META[currentGame].path;
-  window.location.href = `${target}?code=${encodeURIComponent(roomCode)}&name=${encodeURIComponent(playerName)}&gameId=${encodeURIComponent(currentGame)}`;
+  const playerParam = myId ? `&playerId=${encodeURIComponent(myId)}` : '';
+  window.location.href =
+    `${target}?code=${encodeURIComponent(roomCode)}` +
+    `&name=${encodeURIComponent(playerName)}` +
+    `&gameId=${encodeURIComponent(currentGame)}` +
+    playerParam;
 }
 
 function appendChat(name, text, colorIndex) {
