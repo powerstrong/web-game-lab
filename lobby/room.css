@@ -370,10 +370,20 @@ body {
 }
 
 .chat-message {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   padding: 10px 12px;
   border-radius: 14px;
   background: #f7f9ff;
   line-height: 1.5;
+}
+
+.chat-message .msg-content {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
 }
 
 .chat-message .msg-name {
@@ -381,7 +391,16 @@ body {
   margin-right: 0.35rem;
 }
 
+.chat-message .msg-time {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.82;
+}
+
 .chat-message.system {
+  display: block;
   background: transparent;
   color: var(--muted);
   text-align: center;

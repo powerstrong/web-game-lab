@@ -243,7 +243,7 @@ function handleMessage(msg) {
       currentGame = msg.currentGame || currentGame;
       renderPlayers(msg.players || [], msg.gameVotes || {});
       renderGameVotes(msg.gameVotes || {});
-      (msg.chatLog || []).forEach((m) => appendChat(m.name, m.text, m.colorIndex));
+      (msg.chatLog || []).forEach((m) => appendChat(m.name, m.text, m.colorIndex, m.ts));
       currentStartVotes = { count: 0, total: (msg.players || []).length };
       renderStartTally();
       if (msg.phase === 'results' && msg.results) {
@@ -291,7 +291,7 @@ function handleMessage(msg) {
       break;
 
     case 'chat':
-      appendChat(msg.name, msg.text, msg.colorIndex);
+      appendChat(msg.name, msg.text, msg.colorIndex, msg.ts);
       break;
 
     case 'game_start':
@@ -466,12 +466,24 @@ function redirectToGame() {
     playerParam;
 }
 
-function appendChat(name, text, colorIndex) {
+function formatChatTime(ts) {
+  const date = new Date(typeof ts === 'number' ? ts : Date.now());
+  return date.toLocaleTimeString('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+function appendChat(name, text, colorIndex, ts) {
   const msgs = document.getElementById('chat-messages');
   const color = PLAYER_COLORS[typeof colorIndex === 'number' ? colorIndex % PLAYER_COLORS.length : 0];
 
   const div = document.createElement('div');
   div.className = 'chat-message';
+
+  const content = document.createElement('div');
+  content.className = 'msg-content';
 
   const nameSpan = document.createElement('span');
   nameSpan.className = 'msg-name';
@@ -479,9 +491,14 @@ function appendChat(name, text, colorIndex) {
   nameSpan.textContent = `${name}:`;
 
   const textNode = document.createTextNode(` ${text}`);
+  const timeSpan = document.createElement('span');
+  timeSpan.className = 'msg-time';
+  timeSpan.textContent = formatChatTime(ts);
 
-  div.appendChild(nameSpan);
-  div.appendChild(textNode);
+  content.appendChild(nameSpan);
+  content.appendChild(textNode);
+  div.appendChild(content);
+  div.appendChild(timeSpan);
   msgs.appendChild(div);
   msgs.scrollTop = msgs.scrollHeight;
 }

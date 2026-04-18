@@ -124,6 +124,10 @@ const state = {
   platforms: [],
   boosts: [],
   resultSubmitted: false,
+  audio: {
+    ctx: null,
+    unlocked: false,
+  },
   network: {
     ws: null,
     joined: false,
@@ -176,6 +180,59 @@ function random(min, max) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function ensureAudioUnlocked() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+
+  if (!state.audio.ctx) {
+    state.audio.ctx = new AudioCtx();
+  }
+
+  if (state.audio.ctx.state === "suspended") {
+    state.audio.ctx.resume().catch(() => {});
+  }
+
+  state.audio.unlocked = true;
+  return state.audio.ctx;
+}
+
+function playTone({ type = "sine", frequency = 440, endFrequency = frequency, duration = 0.12, volume = 0.04 }) {
+  const ctx = ensureAudioUnlocked();
+  if (!ctx) return;
+
+  const now = ctx.currentTime;
+  const oscillator = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency, now);
+  oscillator.frequency.exponentialRampToValueAtTime(Math.max(40, endFrequency), now + duration);
+
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(volume, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+  oscillator.connect(gain);
+  gain.connect(ctx.destination);
+  oscillator.start(now);
+  oscillator.stop(now + duration + 0.02);
+}
+
+function playJumpSound() {
+  playTone({ type: "triangle", frequency: 420, endFrequency: 660, duration: 0.1, volume: 0.035 });
+}
+
+function playLandSound() {
+  playTone({ type: "sine", frequency: 220, endFrequency: 140, duration: 0.09, volume: 0.03 });
+}
+
+function playBoostSound() {
+  playTone({ type: "square", frequency: 540, endFrequency: 1080, duration: 0.16, volume: 0.04 });
+  window.setTimeout(() => {
+    playTone({ type: "triangle", frequency: 760, endFrequency: 520, duration: 0.14, volume: 0.028 });
+  }, 36);
 }
 
 function slotLabel(slot) {
@@ -584,6 +641,7 @@ function updateNetworkTargets(snapshot) {
       return { el, avatarEl: null, spriteEl: null, pose: null, characterId: null };
     },
     (entry, player) => {
+      const previousLatest = entry.latest;
       const pose = getPoseFromStateLike(player);
       const isLocalPlayer = Boolean(gameBoot?.playerId) && player.id === gameBoot.playerId;
       const setupForRender = isLocalPlayer
@@ -623,6 +681,31 @@ function updateNetworkTargets(snapshot) {
       entry.isLocalPlayer = isLocalPlayer;
       entry.alive = player.alive;
       entry.latest = player;
+
+      if (isLocalPlayer && previousLatest) {
+        const landed =
+          previousLatest.alive &&
+          previousLatest.vy > 0.8 &&
+          player.alive &&
+          player.vy <= settings.normalJump + 0.2;
+        if (landed) {
+          spawnEffect("land", player.x + player.width / 2, player.y + player.height + 4);
+          spawnEffect("jump", player.x + player.width / 2, player.y + player.height * 0.8);
+          playLandSound();
+          playJumpSound();
+        }
+
+        const boosted =
+          previousLatest.alive &&
+          player.alive &&
+          previousLatest.vy > settings.boostJump + 3 &&
+          player.vy <= settings.boostJump + 0.2;
+        if (boosted) {
+          spawnEffect("boost", player.x + player.width / 2, player.y + player.height / 2);
+          spawnEffect("pickup", player.x + player.width / 2, player.y + 8);
+          playBoostSound();
+        }
+      }
     }
   );
 
@@ -960,14 +1043,14 @@ function spawnEffect(kind, worldX, worldY) {
   const el = document.createElement("div");
   el.className = `effect effect--${kind}`;
   const isLand = kind === "land";
-  const w = isLand ? 120 : 96;
-  const h = isLand ? 48 : 96;
+  const w = isLand ? 148 : 96;
+  const h = isLand ? 72 : 96;
   const tx = worldX - w / 2;
-  const ty = worldY - state.cameraY - h / 2;
+  const ty = isLand ? worldY - state.cameraY - h * 0.56 : worldY - state.cameraY - h / 2;
   el.style.setProperty("--tx", `${tx}px`);
   el.style.setProperty("--ty", `${ty}px`);
   worldEl.appendChild(el);
-  setTimeout(() => el.remove(), 420);
+  setTimeout(() => el.remove(), isLand ? 520 : 420);
 }
 
 function clearWorld() {
@@ -1080,7 +1163,10 @@ function handleLanding(player, previousY) {
     if (horizontalHit && passedTop) {
       player.y = platform.y - player.height;
       player.vy = settings.normalJump;
+      spawnEffect("land", player.x + player.width / 2, platform.y + 6);
       spawnEffect("jump", player.x + player.width / 2, platform.y);
+      playLandSound();
+      playJumpSound();
       return;
     }
   }
@@ -1099,6 +1185,7 @@ function handleBoostPickup(player) {
       player.vy = settings.boostJump;
       spawnEffect("boost", boost.x + boost.size / 2, boost.y + boost.size / 2);
       spawnEffect("pickup", boost.x + boost.size / 2, boost.y);
+      playBoostSound();
       setStatus(`${slotLabel(player.slot)} ${BOOST_META[boost.kind].message}!`);
       boost.el.remove();
       return false;
@@ -1248,6 +1335,7 @@ function loop() {
 }
 
 function startGame() {
+  ensureAudioUnlocked();
   if (isRoomSession) {
     hideResultsOverlay();
     showScreen("play");
@@ -1332,6 +1420,7 @@ function findFreeTouchSlot() {
 }
 
 function handlePointerDown(event) {
+  ensureAudioUnlocked();
   if (!state.running || state.chatFocused || resultsOverlay.classList.contains("is-active")) return;
   const activeSlots = new Set(state.touchAssignments.values());
   const slot = state.playerCount === 1 ? (activeSlots.has(0) ? null : 0) : findFreeTouchSlot();
@@ -1477,6 +1566,7 @@ function bindSetupEvents() {
 
 function bindKeyboardEvents() {
   window.addEventListener("keydown", (event) => {
+    ensureAudioUnlocked();
     const trackedKeys = ["a", "A", "d", "D", "ArrowLeft", "ArrowRight"];
     if (!trackedKeys.includes(event.key)) return;
 
