@@ -11,6 +11,9 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles/lab.css" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#4b6bff" />
   </head>
   <body>
     <main class="shell">
@@ -22,6 +25,7 @@
         </h1>
         <div class="hero-actions">
           <a class="cta-button" href="./lobby/index.html">로비 만들기</a>
+          <button class="install-btn" id="install-btn" hidden>앱으로 설치</button>
           <p class="hero-note">로그인 없이 · 방 코드로 입장 · 바로 플레이</p>
         </div>
       </section>
@@ -32,6 +36,32 @@
     </main>
 
     <script src="./games/registry.js"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      }
+
+      let _installPrompt = null;
+      window.addEventListener('beforeinstallprompt', e => {
+        e.preventDefault();
+        _installPrompt = e;
+        const btn = document.getElementById('install-btn');
+        if (btn) btn.hidden = false;
+      });
+      window.addEventListener('appinstalled', () => {
+        const btn = document.getElementById('install-btn');
+        if (btn) btn.hidden = true;
+        _installPrompt = null;
+      });
+      document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('install-btn').addEventListener('click', async () => {
+          if (!_installPrompt) return;
+          _installPrompt.prompt();
+          const { outcome } = await _installPrompt.userChoice;
+          if (outcome === 'accepted') _installPrompt = null;
+        });
+      });
+    </script>
     <script>
       (function () {
         const TYPE_LABELS = { SOLO: '솔로', DUEL_LIVE: '실시간 대전', PARTY_ASYNC: '파티' };
