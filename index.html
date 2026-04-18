@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Web Game Lab</title>
+    <title>텐텐오락실</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -20,46 +20,65 @@
           친구만 모이면
           <span>바로 시작되는 한 판</span>
         </h1>
-        <p class="hero-copy">
-          로그인 없이 입장하고, 방 코드로 바로 모입니다.
-          짧게 붙고 시원하게 끝나는 멀티플레이 미니게임을 즐겨보세요.
-        </p>
-
         <div class="hero-actions">
-          <a class="cta-button" href="./lobby/index.html">게임 시작하기</a>
-          <p class="hero-note">빠른 입장 · 실시간 로비 · 바로 플레이</p>
-        </div>
-
-        <div class="quick-steps" aria-label="빠른 이용 방법">
-          <div class="step">
-            <strong>1</strong>
-            <span>방 생성</span>
-          </div>
-          <div class="step">
-            <strong>2</strong>
-            <span>친구 초대</span>
-          </div>
-          <div class="step">
-            <strong>3</strong>
-            <span>게임 시작</span>
-          </div>
-        </div>
-
-        <div class="game-strip" aria-label="게임 목록">
-          <a class="game-pill" href="./prototypes/dodge-square/index.html">
-            <strong>네모 피하기</strong>
-            <span>끝까지 살아남는 쪽이 이깁니다</span>
-          </a>
-          <a class="game-pill" href="./prototypes/rhythm-tap/index.html">
-            <strong>박자 맞추기</strong>
-            <span>타이밍이 정확할수록 점수가 올라갑니다</span>
-          </a>
-          <a class="game-pill" href="./prototypes/jump-climber/index.html">
-            <strong>말티쬬 점프점프</strong>
-            <span>발판 점프로 끝없이 올라가는 클라이머</span>
-          </a>
+          <a class="cta-button" href="./lobby/index.html">로비 만들기</a>
+          <p class="hero-note">로그인 없이 · 방 코드로 입장 · 바로 플레이</p>
         </div>
       </section>
+
+      <section class="games-section" aria-label="게임 목록">
+        <div class="hub-grid" id="hub-grid"></div>
+      </section>
     </main>
+
+    <script src="./games/registry.js"></script>
+    <script>
+      (function () {
+        const TYPE_LABELS = { SOLO: '솔로', DUEL_LIVE: '실시간 대전', PARTY_ASYNC: '파티' };
+        const TYPE_CLASSES = { SOLO: 'solo', DUEL_LIVE: 'duel', PARTY_ASYNC: 'party' };
+        const STATUS_LABELS = { PLAYABLE: '플레이 가능', ALPHA: '알파', COMING_SOON: '준비 중' };
+
+        function getHref(game) {
+          return game.type === 'SOLO' ? game.path : '/lobby/index.html';
+        }
+
+        function formatDuration(s) {
+          return s > 0 ? s + '초' : '무제한';
+        }
+
+        const grid = document.getElementById('hub-grid');
+        (window.GAME_REGISTRY || []).forEach(function (game) {
+          const a = document.createElement('a');
+          a.className = 'hub-card';
+          a.href = getHref(game);
+
+          const typeClass = TYPE_CLASSES[game.type] || 'solo';
+          const typeLabel = TYPE_LABELS[game.type] || game.type;
+          const statusLabel = STATUS_LABELS[game.status] || game.status;
+
+          a.innerHTML =
+            '<div class="hub-card-accent" style="background:' + game.accentColor + '"></div>' +
+            '<div class="hub-card-body">' +
+              '<div class="hub-card-top">' +
+                '<span class="hub-card-icon" style="background:' + game.accentColor + '">' + game.icon + '</span>' +
+                '<div class="hub-card-badges">' +
+                  '<span class="badge badge-' + typeClass + '">' + typeLabel + '</span>' +
+                  '<span class="badge badge-status">' + statusLabel + '</span>' +
+                '</div>' +
+              '</div>' +
+              '<h3 class="hub-card-title">' + game.title + '</h3>' +
+              '<p class="hub-card-desc">' + game.description + '</p>' +
+              '<ul class="hub-card-meta">' +
+                '<li><span class="meta-label">권장</span>' + game.recommendedPlayers + '</li>' +
+                '<li><span class="meta-label">지원</span>' + game.supportedPlayers + '</li>' +
+                '<li><span class="meta-label">방식</span>' + game.playMode + '</li>' +
+                '<li><span class="meta-label">시간</span>' + formatDuration(game.durationSeconds) + '</li>' +
+              '</ul>' +
+            '</div>';
+
+          grid.appendChild(a);
+        });
+      })();
+    </script>
   </body>
 </html>

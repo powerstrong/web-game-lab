@@ -175,6 +175,116 @@ h1 span {
   font-size: 0.94rem;
 }
 
+/* ── hub game grid ─────────────────────────────────────────────────────── */
+
+.games-section {
+  margin-top: 20px;
+}
+
+.hub-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.hub-card {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--surface-strong);
+  text-decoration: none;
+  color: inherit;
+  overflow: hidden;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.hub-card:hover,
+.hub-card:focus-visible {
+  transform: translateY(-3px);
+  box-shadow: 0 20px 40px rgba(70, 88, 146, 0.14);
+}
+
+.hub-card-accent {
+  height: 5px;
+}
+
+.hub-card-body {
+  padding: 18px;
+}
+
+.hub-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.hub-card-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  color: #fff;
+  font-family: "Outfit", sans-serif;
+  font-weight: 800;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.hub-card-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.badge-solo    { background: rgba(75, 107, 255, 0.1);  color: #2f51f5; }
+.badge-duel    { background: rgba(231, 76, 60, 0.1);   color: #c0392b; }
+.badge-party   { background: rgba(255, 184, 69, 0.12); color: #b07800; }
+.badge-status  { background: rgba(89, 201, 138, 0.15); color: #1d7a46; }
+
+.hub-card-title {
+  margin: 0 0 6px;
+  font-family: "Outfit", "Noto Sans KR", sans-serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.hub-card-desc {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.hub-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.hub-card-meta .meta-label {
+  font-weight: 700;
+  color: var(--ink);
+  margin-right: 3px;
+}
+
+/* ── responsive ─────────────────────────────────────────────────────────── */
+
 @media (max-width: 680px) {
   .shell {
     width: min(100% - 18px, 920px);
@@ -187,7 +297,8 @@ h1 span {
   }
 
   .quick-steps,
-  .game-strip {
+  .game-strip,
+  .hub-grid {
     grid-template-columns: 1fr;
   }
 
