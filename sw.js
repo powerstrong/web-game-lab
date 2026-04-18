@@ -1,4 +1,4 @@
-const CACHE = 'tenten-v1';
+const CACHE = 'tenten-v2';
 
 const PRECACHE = [
   '/',
@@ -32,6 +32,22 @@ self.addEventListener('fetch', e => {
   // Skip non-GET and API/WS requests
   if (e.request.method !== 'GET') return;
   if (e.request.url.includes('/api/')) return;
+
+  // Let top-level navigations prefer the network so route and HTML updates
+  // are not masked by stale cached documents.
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      fetch(e.request)
+        .then(res => {
+          if (res.ok) {
+            caches.open(CACHE).then(c => c.put(e.request, res.clone()));
+          }
+          return res;
+        })
+        .catch(() => caches.match(e.request).then(cached => cached || caches.match('/')))
+    );
+    return;
+  }
 
   e.respondWith(
     caches.match(e.request).then(cached => {
