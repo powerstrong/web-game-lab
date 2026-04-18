@@ -384,8 +384,8 @@ h2 {
   overflow: hidden;
   border-radius: 28px;
   background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.8), transparent 28%),
-    linear-gradient(180deg, #dff7ff 0%, #f6fbff 28%, #ffeef7 100%);
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.35), transparent 28%),
+    url("/assets/bg_sky_vertical.png") center top / cover no-repeat;
   touch-action: none;
   user-select: none;
 }
@@ -394,20 +394,23 @@ h2 {
 .arena::after {
   content: "";
   position: absolute;
-  inset: auto auto 68px 0;
-  width: 220px;
-  height: 54px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.45);
-  filter: blur(4px);
+  inset: 0;
+  background-repeat: no-repeat;
+  pointer-events: none;
 }
 
 .arena::after {
-  left: auto;
-  right: 26px;
-  bottom: 140px;
-  width: 160px;
-  opacity: 0.85;
+  background:
+    url("/assets/bg_cloud_near.png") left 10% bottom 12% / 48% auto no-repeat,
+    url("/assets/bg_cloud_near.png") right -4% top 20% / 38% auto no-repeat;
+  opacity: 0.82;
+}
+
+.arena::before {
+  background:
+    url("/assets/bg_cloud_far.png") left -8% top 10% / 42% auto no-repeat,
+    url("/assets/bg_cloud_far.png") right -10% center / 46% auto no-repeat;
+  opacity: 0.58;
 }
 
 .world {
@@ -425,53 +428,74 @@ h2 {
   height: 18px;
   border-radius: 999px;
   transform-origin: center center;
-  box-shadow: 0 10px 20px rgba(116, 174, 112, 0.22);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  box-shadow: 0 10px 20px rgba(116, 174, 112, 0.18);
+  overflow: visible;
 }
 
 .platform::after {
-  content: "";
-  position: absolute;
-  inset: auto 14px -4px;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(113, 72, 53, 0.12);
+  content: none;
 }
 
 .platform--leaf {
-  background: linear-gradient(180deg, #96f16b, #58c867);
+  background-image: url("/assets/platform_leaf.png");
 }
 
 .platform--cloud {
-  background: linear-gradient(180deg, #fffefe, #f4f7ff);
+  background-image: url("/assets/platform_cloud.png");
 }
 
 .platform--cake {
-  background: linear-gradient(180deg, #ffd0d9, #ff9eb9);
+  background-image: url("/assets/platform_cake.png");
 }
 
 .platform--base {
-  background: linear-gradient(180deg, #ffd6a6, #ffb45d);
+  background-image: url("/assets/platform_base.png");
+}
+
+.platform-deco {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -54%);
+  width: 64px;
+  height: 64px;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 6px 12px rgba(111, 90, 111, 0.18));
+}
+
+.platform-deco--spinner {
+  background-image: url("/assets/platform_spinner_center.png");
+}
+
+.platform-deco--orb {
+  background-image: url("/assets/platform_float_orb.png");
 }
 
 .boost {
   width: 28px;
   height: 28px;
-  display: grid;
-  place-items: center;
+  display: block;
   border-radius: 999px;
-  color: #fff;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  box-shadow: 0 10px 18px rgba(255, 128, 98, 0.18);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  box-shadow: 0 10px 18px rgba(255, 128, 98, 0.12);
+  color: transparent;
+  font-size: 0;
 }
 
 .boost--rocket {
-  background: linear-gradient(180deg, #ff8b71, #ff5a71);
+  background-image: url("/assets/boost_rocket.png");
 }
 
 .boost--star {
-  background: linear-gradient(180deg, #ffcc56, #ff9f39);
+  background-image: url("/assets/boost_star.png");
 }
 
 .player {

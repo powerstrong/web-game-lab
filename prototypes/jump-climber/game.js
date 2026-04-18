@@ -73,6 +73,11 @@ const BOOST_META = {
   star: { label: "GO", message: "별 부스트" },
 };
 
+const PLATFORM_DECO_BY_MOTION = {
+  drift: "orb",
+  rotate: "spinner",
+};
+
 const settings = {
   worldWidth: 500,
   gravity: 0.42,
@@ -418,12 +423,18 @@ function renderNetworkSnapshot(snapshot) {
       const el = document.createElement("div");
       el.className = `platform platform--${platform.kind}`;
       el.style.width = `${platform.width}px`;
+      const decoType = PLATFORM_DECO_BY_MOTION[platform.motion?.type] || "";
+      if (decoType) {
+        el.innerHTML = `<span class="platform-deco platform-deco--${decoType}"></span>`;
+      }
       worldEl.appendChild(el);
       return el;
     },
     (el, platform) => {
       el.className = `platform platform--${platform.kind}`;
       el.style.width = `${platform.width}px`;
+      const decoType = PLATFORM_DECO_BY_MOTION[platform.motion?.type] || "";
+      el.innerHTML = decoType ? `<span class="platform-deco platform-deco--${decoType}"></span>` : "";
       el.style.transform = `translate(${platform.x}px, ${platform.y - snapshot.cameraY}px) rotate(${platform.rotation || 0}deg)`;
     }
   );
@@ -702,6 +713,10 @@ function createPlatform(y, isBase = false) {
   const el = document.createElement("div");
   el.className = `platform platform--${kind}`;
   el.style.width = `${width}px`;
+  const decoType = PLATFORM_DECO_BY_MOTION[motion.type] || "";
+  if (decoType) {
+    el.innerHTML = `<span class="platform-deco platform-deco--${decoType}"></span>`;
+  }
   worldEl.appendChild(el);
 
   const platform = {
