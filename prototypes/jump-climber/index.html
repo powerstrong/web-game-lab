@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jump Climber Prototype</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <section class="panel">
+        <p class="eyebrow">Vertical Jump Prototype</p>
+        <h1>말티쬬 점프점프</h1>
+        <p class="summary">
+          좌/우로 이동하며 발판을 밟아 계속 위로 올라가세요. 고기/천사날개를 먹으면
+          점프 부스트가 걸립니다.
+        </p>
+      </section>
+
+      <section class="panel">
+        <div class="hud">
+          <span id="height">Height 0m</span>
+          <span id="status">좌우 이동 후 발판을 밟아 점프</span>
+          <button id="restart" type="button">Restart</button>
+        </div>
+
+        <div id="arena" class="arena">
+          <div id="world" class="world">
+            <div id="player" class="player"></div>
+          </div>
+          <div class="controls" aria-label="모바일 이동 버튼">
+            <button id="leftBtn" type="button" class="touch-btn">◀ 왼쪽</button>
+            <button id="rightBtn" type="button" class="touch-btn">오른쪽 ▶</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="./game.js"></script>
+  </body>
+</html>
