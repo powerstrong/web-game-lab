@@ -226,9 +226,10 @@
       <div class="error-msg" id="join-error"></div>
     </section>
 
-    <p class="tip">방을 만든 플레이어가 판을 여는 호스트가 되고, 나머지는 코드로 바로 합류합니다.</p>
+    <p class="tip" id="game-tip">방을 만든 플레이어가 판을 여는 호스트가 되고, 나머지는 코드로 바로 합류합니다.</p>
   </main>
 
+  <script src="../games/registry.js"></script>
   <script src="config.js"></script>
   <script>
     const nameInput = document.getElementById('player-name');
@@ -239,6 +240,23 @@
     const nameError = document.getElementById('name-error');
     const createError = document.getElementById('create-error');
     const joinError = document.getElementById('join-error');
+
+    const preselectedGameId = new URLSearchParams(window.location.search).get('gameId');
+
+    // Show hint when a specific game was chosen from the hub
+    if (preselectedGameId && window.GAME_REGISTRY) {
+      const game = window.GAME_REGISTRY.find(g => g.id === preselectedGameId);
+      if (game) {
+        const tip = document.getElementById('game-tip');
+        tip.textContent = `선택된 게임: ${game.title} — 방에 입장하면 자동으로 선택됩니다.`;
+      }
+    }
+
+    function roomUrl(code, name) {
+      let url = `room.html?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`;
+      if (preselectedGameId) url += `&gameId=${encodeURIComponent(preselectedGameId)}`;
+      return url;
+    }
 
     const savedName = sessionStorage.getItem('playerName');
     if (savedName) nameInput.value = savedName;
@@ -285,7 +303,7 @@
         const data = await res.json();
         const code = data.code || data.roomCode;
         sessionStorage.setItem('playerName', name);
-        window.location.href = `room.html?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`;
+        window.location.href = roomUrl(code, name);
       } catch (err) {
         createError.textContent = err.message;
         createBtn.disabled = false;
@@ -306,7 +324,7 @@
       }
 
       sessionStorage.setItem('playerName', name);
-      window.location.href = `room.html?code=${encodeURIComponent(raw)}&name=${encodeURIComponent(name)}`;
+      window.location.href = roomUrl(raw, name);
     });
 
     codeInput.addEventListener('keydown', (e) => {

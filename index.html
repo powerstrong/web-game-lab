@@ -39,7 +39,8 @@
         const STATUS_LABELS = { PLAYABLE: '플레이 가능', ALPHA: '알파', COMING_SOON: '준비 중' };
 
         function getHref(game) {
-          return game.type === 'SOLO' ? game.path : '/lobby/index.html';
+          if (game.type === 'SOLO') return game.path;
+          return '/lobby/index.html?gameId=' + encodeURIComponent(game.id);
         }
 
         function formatDuration(s) {

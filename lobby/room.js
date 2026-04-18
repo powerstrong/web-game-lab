@@ -21,6 +21,7 @@ const RECONNECT_DELAY_MS = 2000;
 let ws = null;
 let roomCode = '';
 let playerName = '';
+let preselectedGameId = null;
 let myId = null;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
@@ -52,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);
   roomCode = params.get('code') || '';
   playerName = params.get('name') || sessionStorage.getItem('playerName') || '플레이어';
+  preselectedGameId = params.get('gameId') || null;
 
   if (!roomCode) {
     showDisconnectOverlay('방 코드가 없습니다. 로비에서 다시 입장해 주세요.');
@@ -107,6 +109,13 @@ function onOpen() {
   reconnectAttempts = 0;
   setConnStatus('connected', '연결됨');
   send({ type: 'join', name: playerName });
+  if (preselectedGameId && GAME_META[preselectedGameId]) {
+    myGameVote = preselectedGameId;
+    send({ type: 'vote_game', gameId: preselectedGameId });
+    document.querySelectorAll('.game-card').forEach((card) => {
+      card.classList.toggle('voted', card.dataset.game === preselectedGameId);
+    });
+  }
 }
 
 function onMessage(event) {
@@ -361,7 +370,7 @@ function startCountdown(from) {
 function redirectToGame() {
   if (!currentGame || !GAME_META[currentGame]) return;
   const target = GAME_META[currentGame].path;
-  window.location.href = `${target}?code=${encodeURIComponent(roomCode)}&name=${encodeURIComponent(playerName)}`;
+  window.location.href = `${target}?code=${encodeURIComponent(roomCode)}&name=${encodeURIComponent(playerName)}&gameId=${encodeURIComponent(currentGame)}`;
 }
 
 function appendChat(name, text, colorIndex) {
