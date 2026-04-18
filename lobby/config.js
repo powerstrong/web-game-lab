@@ -1,3 +1,3 @@
 window.WORKER_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:8787'
-  : window.location.origin;
+  : 'https://game-lobby.jusunglee85.workers.dev';
