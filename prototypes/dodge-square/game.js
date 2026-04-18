@@ -11,6 +11,7 @@ const state = {
   enemy: { x: 240, y: 180, size: 30, speed: 1.6 },
   startedAt: 0,
   rafId: 0,
+  exitTimeoutId: 0,
 };
 
 function clamp(value, min, max) {
@@ -32,9 +33,20 @@ function resetPositions() {
 }
 
 function endGame(message) {
+  if (!state.running) return;
+
   state.running = false;
   cancelAnimationFrame(state.rafId);
+  const elapsed = (performance.now() - state.startedAt) / 1000;
+  scoreEl.textContent = `Time ${elapsed.toFixed(1)}s`;
   messageEl.textContent = message;
+
+  if (window.GameBoot && window.GameBoot.isMultiplayer) {
+    window.GameBoot.submitResult({ score: Math.round(elapsed * 10) });
+    state.exitTimeoutId = window.setTimeout(() => {
+      window.GameBoot.exit();
+    }, 2000);
+  }
 }
 
 function isColliding(a, b) {
@@ -84,7 +96,7 @@ function tick() {
   scoreEl.textContent = `Time ${elapsed.toFixed(1)}s`;
 
   if (isColliding(state.player, state.enemy)) {
-    endGame(`Caught after ${elapsed.toFixed(1)}s`);
+    endGame(`잡힌 시간: ${elapsed.toFixed(1)}초`);
     return;
   }
 
@@ -92,6 +104,7 @@ function tick() {
 }
 
 function startGame() {
+  clearTimeout(state.exitTimeoutId);
   resetPositions();
   state.running = true;
   state.startedAt = performance.now();
