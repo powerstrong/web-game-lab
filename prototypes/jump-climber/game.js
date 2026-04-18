@@ -549,7 +549,7 @@ function updateNetworkTargets(snapshot) {
       const setupForRender = isLocalPlayer
         ? state.setup[0]
         : { ...createDefaultSetup(player.characterId), characterId: player.characterId };
-      if (entry.characterId !== player.characterId || entry.pose !== pose) {
+      if (entry.characterId !== player.characterId || !entry.spriteEl) {
         entry.el.innerHTML = createAvatarMarkup(
           setupForRender,
           `${player.slot + 1}P`,
@@ -559,6 +559,10 @@ function updateNetworkTargets(snapshot) {
         entry.avatarEl = entry.el.querySelector(".avatar");
         entry.spriteEl = entry.el.querySelector(".avatar__sprite");
         entry.characterId = player.characterId;
+        entry.pose = pose;
+      } else if (entry.pose !== pose) {
+        const character = getCharacter(player.characterId);
+        entry.spriteEl.src = getSpriteSrc(character, pose);
         entry.pose = pose;
       }
 
