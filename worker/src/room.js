@@ -36,7 +36,7 @@ const JUMP_GAME_SETTINGS = {
   platformWidthMax: 150,
   startLineY: 540,
   playerSpawnOffset: 52,
-  tickMs: 16,
+  tickMs: 50,
   safePlatformInset: 14,
   difficultyHeightRange: 2600,
   pathShiftMin: 180,
@@ -48,6 +48,7 @@ const JUMP_GAME_SETTINGS = {
 };
 
 const PLATFORM_KINDS = ['leaf', 'cloud', 'cake'];
+const JUMP_PROTOCOL_VERSION = 'jump/v1';
 
 function createPlatformMotion() {
   const roll = Math.random();
@@ -257,6 +258,7 @@ export class GameRoom {
       cameraY: 0,
       nextPlatformId: 1,
       nextBoostId: 1,
+      messageSeq: 0,
       running: false,
     };
 
@@ -279,6 +281,7 @@ export class GameRoom {
     this.jumpGame.nextPlatformId = 1;
     this.jumpGame.nextBoostId = 1;
     this.jumpGame.elapsedMs = 0;
+    this.jumpGame.messageSeq = 0;
     this.jumpGame.players = {};
     this.jumpGame.running = false;
 
@@ -307,11 +310,14 @@ export class GameRoom {
     }
   }
 
-  _buildJumpSnapshot() {
+  _buildJumpStateMessage(type) {
     if (!this.jumpGame) return null;
 
     return {
-      type: 'jump_state',
+      type,
+      protocol: JUMP_PROTOCOL_VERSION,
+      mode: 'full',
+      seq: this.jumpGame.messageSeq,
       running: this.jumpGame.running,
       waitingFor: Math.max(0, this.jumpGame.expectedPlayers - this._getGameSessions('jump-climber').filter(({ player }) => !player.isSpectator).length),
       expectedPlayers: this.jumpGame.expectedPlayers,
@@ -339,10 +345,18 @@ export class GameRoom {
     });
   }
 
-  _broadcastJumpSnapshot() {
-    const snapshot = this._buildJumpSnapshot();
-    if (!snapshot) return;
-    this._broadcastGame(snapshot, 'jump-climber');
+  _sendJumpInit(ws) {
+    const init = this._buildJumpStateMessage('jump_init');
+    if (!init) return;
+    ws.send(JSON.stringify(init));
+  }
+
+  _broadcastJumpPatch() {
+    if (!this.jumpGame) return;
+    this.jumpGame.messageSeq += 1;
+    const patch = this._buildJumpStateMessage('jump_patch');
+    if (!patch) return;
+    this._broadcastGame(patch, 'jump-climber');
   }
 
   _startJumpLoop() {
@@ -484,7 +498,7 @@ export class GameRoom {
     });
 
     this._updateJumpCamera();
-    this._broadcastJumpSnapshot();
+    this._broadcastJumpPatch();
 
     if (Object.values(this.jumpGame.players).every((player) => !player.alive)) {
       await this._finishJumpGame();
@@ -508,6 +522,7 @@ export class GameRoom {
       return;
     }
 
+    const game = this._ensureJumpGame(playerRoster);
     const isSpectator = !playerRoster.some((p) => p.id === msg.playerId);
 
     if (isSpectator) {
@@ -518,12 +533,10 @@ export class GameRoom {
         isSpectator: true,
       });
       ws.send(JSON.stringify({ type: 'jump_joined', role: 'spectator' }));
-      const snapshot = this._buildJumpSnapshot();
-      if (snapshot) ws.send(JSON.stringify(snapshot));
+      this._sendJumpInit(ws);
       return;
     }
 
-    const game = this._ensureJumpGame(playerRoster);
     const player = game.players[rosterPlayer.id];
     player.connected = true;
     player.inputDirection = 0;
@@ -547,7 +560,8 @@ export class GameRoom {
       this._startJumpLoop();
     }
 
-    this._broadcastJumpSnapshot();
+    this._sendJumpInit(ws);
+    this._broadcastJumpPatch();
   }
 
   _handlePlayerInput(player, msg) {
@@ -770,7 +784,7 @@ export class GameRoom {
       if (Object.values(this.jumpGame.players).every((entry) => !entry.alive)) {
         await this._finishJumpGame();
       } else {
-        this._broadcastJumpSnapshot();
+        this._broadcastJumpPatch();
       }
       return;
     }

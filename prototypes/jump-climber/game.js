@@ -132,6 +132,9 @@ const state = {
   network: {
     ws: null,
     joined: false,
+    protocol: null,
+    initialized: false,
+    lastSeq: -1,
     snapshot: null,
     snapshots: [],
     lastSentDirection: null,
@@ -438,6 +441,10 @@ function clearNetworkWorld() {
   state.network.platformEls.clear();
   state.network.boostEls.clear();
   state.network.playerEls.clear();
+  state.network.joined = false;
+  state.network.protocol = null;
+  state.network.initialized = false;
+  state.network.lastSeq = -1;
   state.network.snapshot = null;
   state.network.snapshots = [];
   state.network.lastFrameTime = 0;
@@ -722,6 +729,32 @@ function updateNetworkTargets(snapshot) {
   }
 }
 
+function applyJumpInitFrame(frame) {
+  clearNetworkWorld();
+  state.network.protocol = frame.protocol || "jump/v1";
+  state.network.initialized = true;
+  state.network.lastSeq = Number.isFinite(frame.seq) ? frame.seq : 0;
+  updateNetworkTargets(frame);
+}
+
+function applyJumpPatchFrame(frame) {
+  if (!state.network.initialized) return;
+  const nextSeq = Number.isFinite(frame.seq) ? frame.seq : state.network.lastSeq + 1;
+  if (nextSeq <= state.network.lastSeq) return;
+  state.network.protocol = frame.protocol || state.network.protocol;
+  state.network.lastSeq = nextSeq;
+  updateNetworkTargets(frame);
+}
+
+function applyLegacyJumpState(frame) {
+  if (!state.network.initialized) {
+    clearNetworkWorld();
+    state.network.protocol = "jump_state_legacy";
+    state.network.initialized = true;
+  }
+  updateNetworkTargets(frame);
+}
+
 function renderNetworkFrame(now) {
   if (!isRoomSession || !state.running) return;
 
@@ -730,15 +763,15 @@ function renderNetworkFrame(now) {
   const predictionStep = dt / 16.67;
 
   state.network.platformEls.forEach((entry) => {
-    entry.currentX += (entry.targetX - entry.currentX) * 0.28;
-    entry.currentY += (entry.targetY - entry.currentY) * 0.28;
-    entry.currentRotation += (entry.targetRotation - entry.currentRotation) * 0.22;
+    entry.currentX += (entry.targetX - entry.currentX) * 0.12;
+    entry.currentY += (entry.targetY - entry.currentY) * 0.12;
+    entry.currentRotation += (entry.targetRotation - entry.currentRotation) * 0.09;
     entry.el.style.transform = `translate(${entry.currentX}px, ${entry.currentY}px) rotate(${entry.currentRotation}deg)`;
   });
 
   state.network.boostEls.forEach((entry) => {
-    entry.currentX += (entry.targetX - entry.currentX) * 0.28;
-    entry.currentY += (entry.targetY - entry.currentY) * 0.28;
+    entry.currentX += (entry.targetX - entry.currentX) * 0.12;
+    entry.currentY += (entry.targetY - entry.currentY) * 0.12;
     entry.el.style.transform = `translate(${entry.currentX}px, ${entry.currentY}px)`;
   });
 
@@ -746,11 +779,11 @@ function renderNetworkFrame(now) {
     if (entry.isLocalPlayer) {
       const predictedDirection = getPlayerDirection(0);
       entry.currentX += predictedDirection * settings.moveSpeed * predictionStep;
-      entry.currentX += (entry.serverX - entry.currentX) * 0.18;
-      entry.currentY += (entry.serverY - entry.currentY) * 0.35;
+      entry.currentX += (entry.serverX - entry.currentX) * 0.08;
+      entry.currentY += (entry.serverY - entry.currentY) * 0.18;
     } else {
-      entry.currentX += (entry.targetX - entry.currentX) * 0.24;
-      entry.currentY += (entry.targetY - entry.currentY) * 0.24;
+      entry.currentX += (entry.targetX - entry.currentX) * 0.10;
+      entry.currentY += (entry.targetY - entry.currentY) * 0.10;
     }
 
     entry.el.style.transform = `translate(${entry.currentX}px, ${entry.currentY}px)`;
@@ -788,15 +821,22 @@ function startNetworkInputLoop() {
   syncNetworkInput(true);
   state.network.inputIntervalId = window.setInterval(() => {
     syncNetworkInput(true);
-  }, 180);
+  }, 50);
 }
 
 function handleNetworkMessage(msg) {
   switch (msg.type) {
+    case "jump_init":
+      applyJumpInitFrame(msg);
+      break;
+    case "jump_patch":
+      applyJumpPatchFrame(msg);
+      break;
     case "jump_state":
-      updateNetworkTargets(msg);
+      applyLegacyJumpState(msg);
       break;
     case "jump_joined":
+      state.network.joined = true;
       state.isSpectator = msg.role === "spectator";
       if (state.isSpectator) {
         setStatus("관전 중 — 채팅으로 응원해 주세요! 선수들이 열심히 올라가고 있어요.");
