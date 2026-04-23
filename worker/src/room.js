@@ -50,6 +50,14 @@ const JUMP_GAME_SETTINGS = {
 const PLATFORM_KINDS = ['leaf', 'cloud', 'cake'];
 const JUMP_PROTOCOL_VERSION = 'jump/v1';
 const JUMP_BASE_STEP_MS = 1000 / 60;
+const JUMP_SESSION_LIMITS = {
+  players: 2,
+  spectators: 2,
+};
+const JUMP_PATCH_RATES = {
+  playerMs: JUMP_GAME_SETTINGS.tickMs,
+  spectatorMs: 100,
+};
 
 function getJumpSubstepCount() {
   return Math.max(1, Math.round(JUMP_GAME_SETTINGS.tickMs / JUMP_BASE_STEP_MS));
@@ -61,6 +69,10 @@ function getJumpSubstepMs() {
 
 function getJumpStepScale(stepMs) {
   return stepMs / JUMP_BASE_STEP_MS;
+}
+
+function getJumpSpectatorPatchEvery() {
+  return Math.max(1, Math.round(JUMP_PATCH_RATES.spectatorMs / JUMP_PATCH_RATES.playerMs));
 }
 
 function getStepBlend(baseFactor, stepMs, fullStepMs = JUMP_GAME_SETTINGS.tickMs) {
@@ -142,6 +154,13 @@ export class GameRoom {
     return this._getSessions().filter(({ player }) => player.role === 'game' && player.gameId === gameId);
   }
 
+  _getJumpSessions({ spectators = null } = {}) {
+    return this._getGameSessions('jump-climber').filter(({ player }) => {
+      if (spectators == null) return true;
+      return Boolean(player.isSpectator) === spectators;
+    });
+  }
+
   _broadcastAll(msg) {
     const text = JSON.stringify(msg);
     for (const ws of this.state.getWebSockets()) {
@@ -157,9 +176,10 @@ export class GameRoom {
     }
   }
 
-  _broadcastGame(msg, gameId = 'jump-climber') {
+  _broadcastGame(msg, gameId = 'jump-climber', { spectators = null } = {}) {
     const text = JSON.stringify(msg);
-    for (const { ws } of this._getGameSessions(gameId)) {
+    for (const { ws, player } of this._getGameSessions(gameId)) {
+      if (spectators != null && Boolean(player.isSpectator) !== spectators) continue;
       try { ws.send(text); } catch { /* ignore closed */ }
     }
   }
@@ -266,7 +286,9 @@ export class GameRoom {
   _ensureJumpGame(roster) {
     if (this.jumpGame) return this.jumpGame;
 
-    const participants = roster.slice(0, 2).map((player, slot) => ({ ...player, slot }));
+    const participants = roster
+      .slice(0, JUMP_SESSION_LIMITS.players)
+      .map((player, slot) => ({ ...player, slot }));
     this.jumpGame = {
       roster: participants,
       expectedPlayers: participants.length,
@@ -357,7 +379,7 @@ export class GameRoom {
       mode: type === 'jump_init' ? 'full' : 'patch',
       seq: this.jumpGame.messageSeq,
       running: this.jumpGame.running,
-      waitingFor: Math.max(0, this.jumpGame.expectedPlayers - this._getGameSessions('jump-climber').filter(({ player }) => !player.isSpectator).length),
+      waitingFor: Math.max(0, this.jumpGame.expectedPlayers - this._getJumpSessions({ spectators: false }).length),
       expectedPlayers: this.jumpGame.expectedPlayers,
       cameraY: this.jumpGame.cameraY,
       elapsedMs: this.jumpGame.elapsedMs,
@@ -395,13 +417,21 @@ export class GameRoom {
     ws.send(JSON.stringify(init));
   }
 
-  _broadcastJumpPatch() {
+  _broadcastJumpPatch({ forceSpectators = false } = {}) {
     if (!this.jumpGame) return;
     const includeWorld = Boolean(this.jumpGame.worldDirty);
     this.jumpGame.messageSeq += 1;
     const patch = this._buildJumpStateMessage('jump_patch', { includeWorld });
     if (!patch) return;
-    this._broadcastGame(patch, 'jump-climber');
+    this._broadcastGame(patch, 'jump-climber', { spectators: false });
+    const shouldBroadcastToSpectators =
+      forceSpectators ||
+      !this.jumpGame.running ||
+      includeWorld ||
+      this.jumpGame.messageSeq % getJumpSpectatorPatchEvery() === 0;
+    if (shouldBroadcastToSpectators) {
+      this._broadcastGame(patch, 'jump-climber', { spectators: true });
+    }
     this.jumpGame.worldDirty = false;
   }
 
@@ -585,7 +615,7 @@ export class GameRoom {
     const currentGame = (await this.state.storage.get('currentGame')) || null;
     const phase = (await this.state.storage.get('phase')) || 'lobby';
     const fullRoster = (await this.state.storage.get('gameRoster')) || [];
-    const playerRoster = fullRoster.slice(0, 2);
+    const playerRoster = fullRoster.slice(0, JUMP_SESSION_LIMITS.players);
 
     if (currentGame !== 'jump-climber' || msg.gameId !== 'jump-climber' || phase !== 'playing') {
       ws.send(JSON.stringify({ type: 'error', message: '지금은 말랑프렌즈 점프 실시간 방에 합류할 수 없습니다.' }));
@@ -602,6 +632,13 @@ export class GameRoom {
     const isSpectator = !playerRoster.some((p) => p.id === msg.playerId);
 
     if (isSpectator) {
+      const activeSpectators = this._getJumpSessions({ spectators: true })
+        .filter(({ ws: sessionWs }) => sessionWs !== ws);
+      if (activeSpectators.length >= JUMP_SESSION_LIMITS.spectators) {
+        ws.send(JSON.stringify({ type: 'error', message: '관전 자리가 꽉 찼습니다. 최대 2명까지 관전 가능합니다.' }));
+        return;
+      }
+
       ws.serializeAttachment({
         ...rosterPlayer,
         role: 'game',
@@ -629,8 +666,7 @@ export class GameRoom {
 
     ws.send(JSON.stringify({ type: 'jump_joined', role: 'player', slot: player.slot }));
 
-    const connectedPlayers = this._getGameSessions('jump-climber')
-      .filter(({ player: p }) => !p.isSpectator).length;
+    const connectedPlayers = this._getJumpSessions({ spectators: false }).length;
     if (connectedPlayers >= game.expectedPlayers && !game.running) {
       game.running = true;
       this._startJumpLoop();
