@@ -107,6 +107,14 @@ const settings = {
 };
 
 const PLAYER_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#ec4899", "#14b8a6", "#f97316"];
+const NETWORK_TICK_MS = 50;
+const NETWORK_PING_INTERVAL_MS = 2000;
+const NETWORK_SNAPSHOT_LIMIT = 32;
+const NETWORK_RTT_SAMPLE_LIMIT = 8;
+const NETWORK_DEFAULT_ONE_WAY_MS = NETWORK_TICK_MS * 0.5;
+const NETWORK_MIN_INTERPOLATION_MS = 100;
+const NETWORK_MAX_INTERPOLATION_MS = 260;
+const NETWORK_BASE_INTERPOLATION_MS = NETWORK_TICK_MS * 2;
 
 const state = {
   running: false,
@@ -139,8 +147,15 @@ const state = {
     elapsedSyncedAtMs: 0,
     snapshot: null,
     snapshots: [],
+    rttSamples: [],
+    rttMs: 0,
+    jitterMs: 0,
+    interpolationDelayMs: NETWORK_BASE_INTERPOLATION_MS + NETWORK_DEFAULT_ONE_WAY_MS,
+    nextPingId: 1,
+    pendingPings: new Map(),
     lastSentDirection: null,
     inputIntervalId: 0,
+    pingIntervalId: 0,
     renderFrameId: 0,
     lastFrameTime: 0,
     platformEls: new Map(),
@@ -464,6 +479,12 @@ function clearNetworkWorld() {
   state.network.elapsedSyncedAtMs = 0;
   state.network.snapshot = null;
   state.network.snapshots = [];
+  state.network.rttSamples = [];
+  state.network.rttMs = 0;
+  state.network.jitterMs = 0;
+  state.network.interpolationDelayMs = NETWORK_BASE_INTERPOLATION_MS + NETWORK_DEFAULT_ONE_WAY_MS;
+  state.network.nextPingId = 1;
+  state.network.pendingPings.clear();
   state.network.lastFrameTime = 0;
   state.network.lastSentDirection = null;
   state.isSpectator = false;
@@ -477,6 +498,14 @@ function stopNetworkInputLoop() {
     clearInterval(state.network.inputIntervalId);
     state.network.inputIntervalId = 0;
   }
+}
+
+function stopNetworkPingLoop() {
+  if (state.network.pingIntervalId) {
+    clearInterval(state.network.pingIntervalId);
+    state.network.pingIntervalId = 0;
+  }
+  state.network.pendingPings.clear();
 }
 
 function stopNetworkRenderLoop() {
@@ -493,6 +522,7 @@ function stopSoloGame() {
 
 function exitSession() {
   stopNetworkInputLoop();
+  stopNetworkPingLoop();
   stopNetworkRenderLoop();
   if (state.network.ws) {
     try {
@@ -617,18 +647,154 @@ function samplePlatformMotion(platform, timeSeconds) {
   };
 }
 
+function getNetworkOneWayDelayMs() {
+  return state.network.rttMs > 0 ? state.network.rttMs * 0.5 : NETWORK_DEFAULT_ONE_WAY_MS;
+}
+
+function recalculateNetworkInterpolationDelay() {
+  const adaptiveDelay =
+    NETWORK_BASE_INTERPOLATION_MS +
+    getNetworkOneWayDelayMs() +
+    state.network.jitterMs * 2;
+  state.network.interpolationDelayMs = clamp(
+    adaptiveDelay,
+    NETWORK_MIN_INTERPOLATION_MS,
+    NETWORK_MAX_INTERPOLATION_MS
+  );
+}
+
+function recordNetworkRttSample(rttMs) {
+  if (!Number.isFinite(rttMs) || rttMs <= 0) return;
+  state.network.rttSamples.push(rttMs);
+  if (state.network.rttSamples.length > NETWORK_RTT_SAMPLE_LIMIT) {
+    state.network.rttSamples.shift();
+  }
+
+  const sampleTotal = state.network.rttSamples.reduce((sum, sample) => sum + sample, 0);
+  const averageRtt = sampleTotal / state.network.rttSamples.length;
+  const averageDeviation =
+    state.network.rttSamples.reduce((sum, sample) => sum + Math.abs(sample - averageRtt), 0) /
+    state.network.rttSamples.length;
+
+  state.network.rttMs = averageRtt;
+  state.network.jitterMs = averageDeviation;
+  recalculateNetworkInterpolationDelay();
+}
+
 function syncNetworkClock(snapshot, now = performance.now()) {
   if (!Number.isFinite(snapshot.elapsedMs)) return;
-  state.network.elapsedMs = snapshot.elapsedMs;
+  state.network.elapsedMs = snapshot.elapsedMs + getNetworkOneWayDelayMs();
   state.network.elapsedSyncedAtMs = now;
 }
 
-function getNetworkElapsedSeconds(now = performance.now()) {
+function getEstimatedNetworkElapsedMs(now = performance.now()) {
   if (!state.network.elapsedSyncedAtMs) {
-    return state.network.elapsedMs / 1000;
+    return state.network.elapsedMs;
   }
 
-  return (state.network.elapsedMs + Math.max(0, now - state.network.elapsedSyncedAtMs)) / 1000;
+  return state.network.elapsedMs + Math.max(0, now - state.network.elapsedSyncedAtMs);
+}
+
+function getBufferedNetworkElapsedMs(now = performance.now()) {
+  return Math.max(0, getEstimatedNetworkElapsedMs(now) - state.network.interpolationDelayMs);
+}
+
+function pushNetworkSnapshot(snapshot) {
+  if (!Number.isFinite(snapshot.elapsedMs)) return;
+  const normalizedSnapshot = {
+    elapsedMs: snapshot.elapsedMs,
+    cameraY: Number.isFinite(snapshot.cameraY) ? snapshot.cameraY : 0,
+    players: (snapshot.players || []).map((player) => ({
+      id: player.id,
+      x: player.x,
+      y: player.y,
+      vx: player.vx || 0,
+      vy: player.vy || 0,
+      alive: player.alive,
+      width: player.width,
+      height: player.height,
+    })),
+  };
+
+  const snapshots = state.network.snapshots;
+  const lastSnapshot = snapshots[snapshots.length - 1];
+  if (lastSnapshot && lastSnapshot.elapsedMs === normalizedSnapshot.elapsedMs) {
+    snapshots[snapshots.length - 1] = normalizedSnapshot;
+  } else {
+    snapshots.push(normalizedSnapshot);
+  }
+
+  while (snapshots.length > NETWORK_SNAPSHOT_LIMIT) {
+    snapshots.shift();
+  }
+}
+
+function sampleBufferedNetworkState(now = performance.now()) {
+  const snapshots = state.network.snapshots;
+  if (snapshots.length === 0) return null;
+
+  const targetElapsedMs = getBufferedNetworkElapsedMs(now);
+  const firstSnapshot = snapshots[0];
+  const latestSnapshot = snapshots[snapshots.length - 1];
+
+  if (snapshots.length === 1 || targetElapsedMs <= firstSnapshot.elapsedMs) {
+    return {
+      elapsedMs: firstSnapshot.elapsedMs,
+      cameraY: firstSnapshot.cameraY,
+      playersById: new Map(firstSnapshot.players.map((player) => [player.id, player])),
+    };
+  }
+
+  if (targetElapsedMs >= latestSnapshot.elapsedMs) {
+    return {
+      elapsedMs: latestSnapshot.elapsedMs,
+      cameraY: latestSnapshot.cameraY,
+      playersById: new Map(latestSnapshot.players.map((player) => [player.id, player])),
+    };
+  }
+
+  let previousSnapshot = firstSnapshot;
+  let nextSnapshot = latestSnapshot;
+  for (let index = 1; index < snapshots.length; index += 1) {
+    if (targetElapsedMs <= snapshots[index].elapsedMs) {
+      previousSnapshot = snapshots[index - 1];
+      nextSnapshot = snapshots[index];
+      break;
+    }
+  }
+
+  const spanMs = Math.max(1, nextSnapshot.elapsedMs - previousSnapshot.elapsedMs);
+  const t = clamp((targetElapsedMs - previousSnapshot.elapsedMs) / spanMs, 0, 1);
+  const previousPlayers = new Map(previousSnapshot.players.map((player) => [player.id, player]));
+  const nextPlayers = new Map(nextSnapshot.players.map((player) => [player.id, player]));
+  const playerIds = new Set([...previousPlayers.keys(), ...nextPlayers.keys()]);
+  const playersById = new Map();
+
+  playerIds.forEach((playerId) => {
+    const previousPlayer = previousPlayers.get(playerId);
+    const nextPlayer = nextPlayers.get(playerId);
+    if (!previousPlayer && nextPlayer) {
+      playersById.set(playerId, nextPlayer);
+      return;
+    }
+    if (previousPlayer && !nextPlayer) {
+      playersById.set(playerId, previousPlayer);
+      return;
+    }
+    playersById.set(playerId, {
+      ...nextPlayer,
+      x: lerp(previousPlayer.x, nextPlayer.x, t),
+      y: lerp(previousPlayer.y, nextPlayer.y, t),
+      vx: lerp(previousPlayer.vx || 0, nextPlayer.vx || 0, t),
+      vy: lerp(previousPlayer.vy || 0, nextPlayer.vy || 0, t),
+    });
+  });
+
+  return {
+    elapsedMs: lerp(previousSnapshot.elapsedMs, nextSnapshot.elapsedMs, t),
+    cameraY: lerp(previousSnapshot.cameraY, nextSnapshot.cameraY, t),
+    playersById,
+  };
 }
 
 function renderNetworkPlatformEntry(entry, timeSeconds) {
@@ -654,7 +820,9 @@ function updateNetworkTargets(snapshot) {
   const syncNow = performance.now();
   syncNetworkClock(snapshot, syncNow);
   state.network.snapshot = snapshot;
-  state.cameraY = snapshot.cameraY;
+  pushNetworkSnapshot(snapshot);
+  const bufferedState = sampleBufferedNetworkState(syncNow);
+  state.cameraY = bufferedState ? bufferedState.cameraY : (snapshot.cameraY || 0);
 
   if (Array.isArray(snapshot.platforms)) {
     syncEntityMap(
@@ -685,7 +853,7 @@ function updateNetworkTargets(snapshot) {
         entry.baseX = Number.isFinite(platform.baseX) ? platform.baseX : (Number.isFinite(platform.x) ? platform.x : 0);
         entry.worldY = platform.y;
         entry.motion = platform.motion || null;
-        renderNetworkPlatformEntry(entry, getNetworkElapsedSeconds(syncNow));
+        renderNetworkPlatformEntry(entry, getBufferedNetworkElapsedMs(syncNow) / 1000);
       }
     );
   }
@@ -745,11 +913,12 @@ function updateNetworkTargets(snapshot) {
         entry.pose = pose;
       }
 
-      initializeEntityMotion(entry, player.x, player.y - snapshot.cameraY);
+      initializeEntityMotion(entry, player.x, player.y);
+      entry.id = player.id;
       entry.targetX = player.x;
-      entry.targetY = player.y - snapshot.cameraY;
+      entry.targetY = player.y;
       entry.serverX = player.x;
-      entry.serverY = player.y - snapshot.cameraY;
+      entry.serverY = player.y;
       entry.serverVx = player.vx || 0;
       entry.serverVy = player.vy || 0;
       entry.el.classList.toggle("is-eliminated", !player.alive);
@@ -834,7 +1003,13 @@ function renderNetworkFrame(now) {
   const dt = state.network.lastFrameTime ? now - state.network.lastFrameTime : 16.67;
   state.network.lastFrameTime = now;
   const predictionStep = dt / 16.67;
-  const motionTime = getNetworkElapsedSeconds(now);
+  const bufferedState = sampleBufferedNetworkState(now);
+  const motionTime = bufferedState
+    ? bufferedState.elapsedMs / 1000
+    : getBufferedNetworkElapsedMs(now) / 1000;
+  if (bufferedState) {
+    state.cameraY = bufferedState.cameraY;
+  }
 
   state.network.platformEls.forEach((entry) => {
     renderNetworkPlatformEntry(entry, motionTime);
@@ -851,12 +1026,16 @@ function renderNetworkFrame(now) {
       entry.currentX += (entry.serverX - entry.currentX) * 0.08;
       entry.currentY += (entry.serverY - entry.currentY) * 0.18;
       entry.currentX = clamp(entry.currentX, 0, settings.worldWidth - (entry.latest?.width || 46));
+    } else if (bufferedState?.playersById.has(entry.id)) {
+      const sampledPlayer = bufferedState.playersById.get(entry.id);
+      entry.currentX = sampledPlayer.x;
+      entry.currentY = sampledPlayer.y;
     } else {
-      entry.currentX += (entry.targetX - entry.currentX) * 0.10;
-      entry.currentY += (entry.targetY - entry.currentY) * 0.10;
+      entry.currentX += (entry.serverX - entry.currentX) * 0.12;
+      entry.currentY += (entry.serverY - entry.currentY) * 0.12;
     }
 
-    entry.el.style.transform = `translate(${entry.currentX}px, ${entry.currentY}px)`;
+    entry.el.style.transform = `translate(${entry.currentX}px, ${entry.currentY - state.cameraY}px)`;
   });
 
   state.effects.forEach((effect) => {
@@ -870,6 +1049,32 @@ function startNetworkRenderLoop() {
   stopNetworkRenderLoop();
   state.network.lastFrameTime = 0;
   state.network.renderFrameId = requestAnimationFrame(renderNetworkFrame);
+}
+
+function sendNetworkPing() {
+  if (!state.network.ws || state.network.ws.readyState !== WebSocket.OPEN) return;
+  const pingId = state.network.nextPingId;
+  state.network.nextPingId += 1;
+  const sentAtMs = performance.now();
+  state.network.pendingPings.set(pingId, sentAtMs);
+  state.network.ws.send(JSON.stringify({ type: "ping", pingId, clientTimeMs: sentAtMs }));
+}
+
+function handleNetworkPong(msg) {
+  const pingId = Number(msg.pingId);
+  if (!Number.isFinite(pingId)) return;
+  const sentAtMs = state.network.pendingPings.get(pingId);
+  if (!Number.isFinite(sentAtMs)) return;
+  state.network.pendingPings.delete(pingId);
+  recordNetworkRttSample(performance.now() - sentAtMs);
+}
+
+function startNetworkPingLoop() {
+  stopNetworkPingLoop();
+  sendNetworkPing();
+  state.network.pingIntervalId = window.setInterval(() => {
+    sendNetworkPing();
+  }, NETWORK_PING_INTERVAL_MS);
 }
 
 function sendNetworkInput(direction) {
@@ -905,6 +1110,9 @@ function handleNetworkMessage(msg) {
     case "jump_state":
       applyLegacyJumpState(msg);
       break;
+    case "pong":
+      handleNetworkPong(msg);
+      break;
     case "jump_joined":
       state.network.joined = true;
       state.isSpectator = msg.role === "spectator";
@@ -935,6 +1143,7 @@ function handleNetworkMessage(msg) {
 
 function connectNetworkGame() {
   stopNetworkInputLoop();
+  stopNetworkPingLoop();
   stopNetworkRenderLoop();
   if (state.network.ws) {
     try {
@@ -965,6 +1174,7 @@ function connectNetworkGame() {
       })
     );
     startNetworkInputLoop();
+    startNetworkPingLoop();
     startNetworkRenderLoop();
     showChatOverlay();
     setStatus("방에 합류했어요. 친구가 들어오면 같은 맵이 시작됩니다.");
@@ -983,6 +1193,7 @@ function connectNetworkGame() {
     if (state.network.ws !== ws) return;
     state.network.ws = null;
     stopNetworkInputLoop();
+    stopNetworkPingLoop();
     stopNetworkRenderLoop();
     if (state.running) {
       setStatus("방 연결이 끊어졌습니다. 다시 시작 버튼으로 재접속해 주세요.");

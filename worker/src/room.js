@@ -687,7 +687,14 @@ export class GameRoom {
       case 'player_input':  if (player) this._handlePlayerInput(player, msg);             break;
       case 'submit_result': if (player) await this._handleSubmitResult(player, msg);      break;
       case 'rematch':       if (player) await this._handleRematch();                       break;
-      case 'ping':          ws.send(JSON.stringify({ type: 'pong' }));                    break;
+      case 'ping':
+        ws.send(JSON.stringify({
+          type: 'pong',
+          pingId: Number.isFinite(msg.pingId) ? msg.pingId : null,
+          clientTimeMs: Number.isFinite(msg.clientTimeMs) ? msg.clientTimeMs : null,
+          elapsedMs: this.jumpGame ? this.jumpGame.elapsedMs : null,
+        }));
+        break;
     }
   }
 
