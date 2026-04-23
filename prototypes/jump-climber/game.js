@@ -135,6 +135,8 @@ const state = {
     protocol: null,
     initialized: false,
     lastSeq: -1,
+    elapsedMs: 0,
+    elapsedSyncedAtMs: 0,
     snapshot: null,
     snapshots: [],
     lastSentDirection: null,
@@ -458,6 +460,8 @@ function clearNetworkWorld() {
   state.network.protocol = null;
   state.network.initialized = false;
   state.network.lastSeq = -1;
+  state.network.elapsedMs = 0;
+  state.network.elapsedSyncedAtMs = 0;
   state.network.snapshot = null;
   state.network.snapshots = [];
   state.network.lastFrameTime = 0;
@@ -597,6 +601,45 @@ function syncEntityMap(map, items, createFn, updateFn) {
   }
 }
 
+function samplePlatformMotion(platform, timeSeconds) {
+  const baseX = Number.isFinite(platform.baseX) ? platform.baseX : (Number.isFinite(platform.x) ? platform.x : 0);
+  if (!platform.motion || platform.motion.type === "static") {
+    return {
+      x: baseX,
+      rotation: 0,
+    };
+  }
+
+  const wave = Math.sin(timeSeconds * platform.motion.speed + platform.motion.phase);
+  return {
+    x: baseX + (platform.motion.type === "drift" ? wave * platform.motion.amplitude : 0),
+    rotation: wave * platform.motion.rotateAmplitude,
+  };
+}
+
+function syncNetworkClock(snapshot, now = performance.now()) {
+  if (!Number.isFinite(snapshot.elapsedMs)) return;
+  state.network.elapsedMs = snapshot.elapsedMs;
+  state.network.elapsedSyncedAtMs = now;
+}
+
+function getNetworkElapsedSeconds(now = performance.now()) {
+  if (!state.network.elapsedSyncedAtMs) {
+    return state.network.elapsedMs / 1000;
+  }
+
+  return (state.network.elapsedMs + Math.max(0, now - state.network.elapsedSyncedAtMs)) / 1000;
+}
+
+function renderNetworkPlatformEntry(entry, timeSeconds) {
+  const { x, rotation } = samplePlatformMotion(entry, timeSeconds);
+  entry.el.style.transform = `translate(${x}px, ${entry.worldY - state.cameraY}px) rotate(${rotation}deg)`;
+}
+
+function renderNetworkBoostEntry(entry) {
+  entry.el.style.transform = `translate(${entry.worldX}px, ${entry.worldY - state.cameraY}px)`;
+}
+
 function initializeEntityMotion(entry, x, y, rotation = 0) {
   if (typeof entry.currentX !== "number") entry.currentX = x;
   if (typeof entry.currentY !== "number") entry.currentY = y;
@@ -608,55 +651,66 @@ function initializeEntityMotion(entry, x, y, rotation = 0) {
 
 function updateNetworkTargets(snapshot) {
   applyArenaScale();
+  const syncNow = performance.now();
+  syncNetworkClock(snapshot, syncNow);
   state.network.snapshot = snapshot;
   state.cameraY = snapshot.cameraY;
 
-  syncEntityMap(
-    state.network.platformEls,
-    snapshot.platforms || [],
-    (platform) => {
-      const el = document.createElement("div");
-      el.className = `platform platform--${platform.kind}`;
-      el.style.width = `${platform.width}px`;
-      const decoType = PLATFORM_DECO_BY_MOTION[platform.motion?.type] || "";
-      if (decoType) {
-        el.innerHTML = `<span class="platform-deco platform-deco--${decoType}"></span>`;
+  if (Array.isArray(snapshot.platforms)) {
+    syncEntityMap(
+      state.network.platformEls,
+      snapshot.platforms,
+      (platform) => {
+        const el = document.createElement("div");
+        el.className = `platform platform--${platform.kind}`;
+        el.style.width = `${platform.width}px`;
+        const decoType = PLATFORM_DECO_BY_MOTION[platform.motion?.type] || "";
+        if (decoType) {
+          el.innerHTML = `<span class="platform-deco platform-deco--${decoType}"></span>`;
+        }
+        worldEl.appendChild(el);
+        return {
+          el,
+          baseX: Number.isFinite(platform.baseX) ? platform.baseX : (Number.isFinite(platform.x) ? platform.x : 0),
+          worldY: platform.y,
+          motion: platform.motion || null,
+        };
+      },
+      (entry, platform) => {
+        const el = entry.el;
+        el.className = `platform platform--${platform.kind}`;
+        el.style.width = `${platform.width}px`;
+        const decoType = PLATFORM_DECO_BY_MOTION[platform.motion?.type] || "";
+        el.innerHTML = decoType ? `<span class="platform-deco platform-deco--${decoType}"></span>` : "";
+        entry.baseX = Number.isFinite(platform.baseX) ? platform.baseX : (Number.isFinite(platform.x) ? platform.x : 0);
+        entry.worldY = platform.y;
+        entry.motion = platform.motion || null;
+        renderNetworkPlatformEntry(entry, getNetworkElapsedSeconds(syncNow));
       }
-      worldEl.appendChild(el);
-      return { el };
-    },
-    (entry, platform) => {
-      const el = entry.el;
-      el.className = `platform platform--${platform.kind}`;
-      el.style.width = `${platform.width}px`;
-      const decoType = PLATFORM_DECO_BY_MOTION[platform.motion?.type] || "";
-      el.innerHTML = decoType ? `<span class="platform-deco platform-deco--${decoType}"></span>` : "";
-      initializeEntityMotion(entry, platform.x, platform.y - snapshot.cameraY, platform.rotation || 0);
-      entry.targetX = platform.x;
-      entry.targetY = platform.y - snapshot.cameraY;
-      entry.targetRotation = platform.rotation || 0;
-    }
-  );
+    );
+  }
 
-  syncEntityMap(
-    state.network.boostEls,
-    snapshot.boosts || [],
-    (boost) => {
-      const el = document.createElement("div");
-      el.className = `boost boost--${boost.kind}`;
-      el.textContent = BOOST_META[boost.kind]?.label || "";
-      worldEl.appendChild(el);
-      return { el };
-    },
-    (entry, boost) => {
-      const el = entry.el;
-      el.className = `boost boost--${boost.kind}`;
-      el.textContent = BOOST_META[boost.kind]?.label || "";
-      initializeEntityMotion(entry, boost.x, boost.y - snapshot.cameraY);
-      entry.targetX = boost.x;
-      entry.targetY = boost.y - snapshot.cameraY;
-    }
-  );
+  if (Array.isArray(snapshot.boosts)) {
+    syncEntityMap(
+      state.network.boostEls,
+      snapshot.boosts,
+      (boost) => {
+        const el = document.createElement("div");
+        el.className = `boost boost--${boost.kind}`;
+        el.textContent = BOOST_META[boost.kind]?.label || "";
+        worldEl.appendChild(el);
+        return { el, worldX: boost.x, worldY: boost.y };
+      },
+      (entry, boost) => {
+        const el = entry.el;
+        el.className = `boost boost--${boost.kind}`;
+        el.textContent = BOOST_META[boost.kind]?.label || "";
+        entry.worldX = boost.x;
+        entry.worldY = boost.y;
+        renderNetworkBoostEntry(entry);
+      }
+    );
+  }
 
   syncEntityMap(
     state.network.playerEls,
@@ -780,18 +834,14 @@ function renderNetworkFrame(now) {
   const dt = state.network.lastFrameTime ? now - state.network.lastFrameTime : 16.67;
   state.network.lastFrameTime = now;
   const predictionStep = dt / 16.67;
+  const motionTime = getNetworkElapsedSeconds(now);
 
   state.network.platformEls.forEach((entry) => {
-    entry.currentX += (entry.targetX - entry.currentX) * 0.12;
-    entry.currentY += (entry.targetY - entry.currentY) * 0.12;
-    entry.currentRotation += (entry.targetRotation - entry.currentRotation) * 0.09;
-    entry.el.style.transform = `translate(${entry.currentX}px, ${entry.currentY}px) rotate(${entry.currentRotation}deg)`;
+    renderNetworkPlatformEntry(entry, motionTime);
   });
 
   state.network.boostEls.forEach((entry) => {
-    entry.currentX += (entry.targetX - entry.currentX) * 0.12;
-    entry.currentY += (entry.targetY - entry.currentY) * 0.12;
-    entry.el.style.transform = `translate(${entry.currentX}px, ${entry.currentY}px)`;
+    renderNetworkBoostEntry(entry);
   });
 
   state.network.playerEls.forEach((entry) => {
@@ -1189,15 +1239,9 @@ function createPlayer(slot) {
 function updatePlatformMotionLocal() {
   const time = performance.now() / 1000;
   state.platforms.forEach((platform) => {
-    if (!platform.motion || platform.motion.type === "static") {
-      platform.x = platform.baseX;
-      platform.rotation = 0;
-      return;
-    }
-
-    const wave = Math.sin(time * platform.motion.speed + platform.motion.phase);
-    platform.x = platform.baseX + (platform.motion.type === "drift" ? wave * platform.motion.amplitude : 0);
-    platform.rotation = wave * platform.motion.rotateAmplitude;
+    const motion = samplePlatformMotion(platform, time);
+    platform.x = motion.x;
+    platform.rotation = motion.rotation;
   });
 }
 

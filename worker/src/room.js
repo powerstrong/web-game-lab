@@ -274,10 +274,12 @@ export class GameRoom {
       platforms: [],
       boosts: [],
       cameraY: 0,
+      elapsedMs: 0,
       nextPlatformId: 1,
       nextBoostId: 1,
       messageSeq: 0,
       running: false,
+      worldDirty: true,
     };
 
     participants.forEach((player, slot) => {
@@ -302,6 +304,7 @@ export class GameRoom {
     this.jumpGame.messageSeq = 0;
     this.jumpGame.players = {};
     this.jumpGame.running = false;
+    this.jumpGame.worldDirty = true;
 
     roster.forEach((player, slot) => {
       this.jumpGame.players[player.id] = this._createJumpPlayer(
@@ -328,21 +331,45 @@ export class GameRoom {
     }
   }
 
-  _buildJumpStateMessage(type) {
-    if (!this.jumpGame) return null;
-
+  _serializeJumpPlatform(platform) {
     return {
+      id: platform.id,
+      kind: platform.kind,
+      width: platform.width,
+      height: platform.height,
+      y: platform.y,
+      baseX: platform.baseX,
+      motion: platform.motion ? { ...platform.motion } : null,
+    };
+  }
+
+  _serializeJumpBoost(boost) {
+    return { ...boost };
+  }
+
+  _buildJumpStateMessage(type, { includeWorld = false } = {}) {
+    if (!this.jumpGame) return null;
+    const shouldIncludeWorld = type === 'jump_init' || includeWorld;
+
+    const message = {
       type,
       protocol: JUMP_PROTOCOL_VERSION,
+      mode: type === 'jump_init' ? 'full' : 'patch',
       seq: this.jumpGame.messageSeq,
       running: this.jumpGame.running,
       waitingFor: Math.max(0, this.jumpGame.expectedPlayers - this._getGameSessions('jump-climber').filter(({ player }) => !player.isSpectator).length),
       expectedPlayers: this.jumpGame.expectedPlayers,
       cameraY: this.jumpGame.cameraY,
+      elapsedMs: this.jumpGame.elapsedMs,
       players: this.jumpGame.roster.map(({ id }) => ({ ...this.jumpGame.players[id] })),
-      platforms: this.jumpGame.platforms.map((platform) => ({ ...platform })),
-      boosts: this.jumpGame.boosts.map((boost) => ({ ...boost })),
     };
+
+    if (shouldIncludeWorld) {
+      message.platforms = this.jumpGame.platforms.map((platform) => this._serializeJumpPlatform(platform));
+      message.boosts = this.jumpGame.boosts.map((boost) => this._serializeJumpBoost(boost));
+    }
+
+    return message;
   }
 
   _updateJumpPlatformMotion() {
@@ -370,10 +397,12 @@ export class GameRoom {
 
   _broadcastJumpPatch() {
     if (!this.jumpGame) return;
+    const includeWorld = Boolean(this.jumpGame.worldDirty);
     this.jumpGame.messageSeq += 1;
-    const patch = this._buildJumpStateMessage('jump_patch');
+    const patch = this._buildJumpStateMessage('jump_patch', { includeWorld });
     if (!patch) return;
     this._broadcastGame(patch, 'jump-climber');
+    this.jumpGame.worldDirty = false;
   }
 
   _startJumpLoop() {
@@ -392,16 +421,28 @@ export class GameRoom {
 
   _ensureJumpPlatformsAbove() {
     if (!this.jumpGame) return;
+    let worldChanged = false;
+    const previousPlatformCount = this.jumpGame.platforms.length;
+    const previousBoostCount = this.jumpGame.boosts.length;
 
     while (Math.min(...this.jumpGame.platforms.map((platform) => platform.y)) > this.jumpGame.cameraY - 1500) {
       const topmost = this._getTopmostJumpPlatform();
       const newTop = topmost.y - JUMP_GAME_SETTINGS.platformGap;
       this.jumpGame.platforms.push(this._createJumpPlatform(this.jumpGame, newTop, false, topmost));
+      worldChanged = true;
     }
 
     const cleanupLimit = this.jumpGame.cameraY + JUMP_GAME_SETTINGS.arenaHeight + 180;
     this.jumpGame.platforms = this.jumpGame.platforms.filter((platform) => platform.y <= cleanupLimit);
     this.jumpGame.boosts = this.jumpGame.boosts.filter((boost) => boost.y <= cleanupLimit);
+
+    if (
+      worldChanged ||
+      this.jumpGame.platforms.length !== previousPlatformCount ||
+      this.jumpGame.boosts.length !== previousBoostCount
+    ) {
+      this.jumpGame.worldDirty = true;
+    }
   }
 
   _handleJumpLanding(player, previousY) {
@@ -424,6 +465,7 @@ export class GameRoom {
 
   _handleJumpBoostPickup(player) {
     if (!this.jumpGame || !player.alive) return;
+    let pickedBoost = false;
 
     this.jumpGame.boosts = this.jumpGame.boosts.filter((boost) => {
       const intersects = !(
@@ -435,11 +477,16 @@ export class GameRoom {
 
       if (intersects) {
         player.vy = JUMP_GAME_SETTINGS.boostJump;
+        pickedBoost = true;
         return false;
       }
 
       return true;
     });
+
+    if (pickedBoost) {
+      this.jumpGame.worldDirty = true;
+    }
   }
 
   _updateJumpCamera(stepMs = JUMP_GAME_SETTINGS.tickMs) {
