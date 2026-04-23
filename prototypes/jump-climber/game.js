@@ -338,6 +338,19 @@ function toggleChatInput(open) {
   if (state.chatInputOpen) chatInputEl.focus();
 }
 
+function isTypingTarget(target) {
+  return Boolean(
+    target &&
+    typeof target === "object" &&
+    ("tagName" in target || "isContentEditable" in target) &&
+    (
+      target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.isContentEditable
+    )
+  );
+}
+
 function showChatOverlay() {
   chatOverlayEl.classList.remove("is-hidden");
 }
@@ -435,8 +448,8 @@ function applyArenaScale() {
 }
 
 function clearNetworkWorld() {
-  state.network.platformEls.forEach((el) => el.remove());
-  state.network.boostEls.forEach((el) => el.remove());
+  state.network.platformEls.forEach((entry) => entry.el?.remove());
+  state.network.boostEls.forEach((entry) => entry.el?.remove());
   state.network.playerEls.forEach(({ el }) => el.remove());
   state.network.platformEls.clear();
   state.network.boostEls.clear();
@@ -448,7 +461,11 @@ function clearNetworkWorld() {
   state.network.snapshot = null;
   state.network.snapshots = [];
   state.network.lastFrameTime = 0;
+  state.network.lastSentDirection = null;
+  state.isSpectator = false;
   state.effects = [];
+  if (spectatorBadgeEl) spectatorBadgeEl.classList.add("is-hidden");
+  chatOverlayEl.classList.add("is-hidden");
 }
 
 function stopNetworkInputLoop() {
@@ -730,7 +747,9 @@ function updateNetworkTargets(snapshot) {
 }
 
 function applyJumpInitFrame(frame) {
+  const wasJoined = state.network.joined;
   clearNetworkWorld();
+  state.network.joined = wasJoined;
   state.network.protocol = frame.protocol || "jump/v1";
   state.network.initialized = true;
   state.network.lastSeq = Number.isFinite(frame.seq) ? frame.seq : 0;
@@ -781,6 +800,7 @@ function renderNetworkFrame(now) {
       entry.currentX += predictedDirection * settings.moveSpeed * predictionStep;
       entry.currentX += (entry.serverX - entry.currentX) * 0.08;
       entry.currentY += (entry.serverY - entry.currentY) * 0.18;
+      entry.currentX = clamp(entry.currentX, 0, settings.worldWidth - (entry.latest?.width || 46));
     } else {
       entry.currentX += (entry.targetX - entry.currentX) * 0.10;
       entry.currentY += (entry.targetY - entry.currentY) * 0.10;
@@ -839,8 +859,11 @@ function handleNetworkMessage(msg) {
       state.network.joined = true;
       state.isSpectator = msg.role === "spectator";
       if (state.isSpectator) {
+        stopNetworkInputLoop();
         setStatus("관전 중 — 채팅으로 응원해 주세요! 선수들이 열심히 올라가고 있어요.");
         if (spectatorBadgeEl) spectatorBadgeEl.classList.remove("is-hidden");
+      } else if (spectatorBadgeEl) {
+        spectatorBadgeEl.classList.add("is-hidden");
       }
       break;
     case "chat":
@@ -848,6 +871,8 @@ function handleNetworkMessage(msg) {
       break;
     case "scoreboard":
       state.running = false;
+      stopNetworkInputLoop();
+      stopNetworkRenderLoop();
       showNetworkResultsOverlay(msg.results || []);
       break;
     case "error":
@@ -878,6 +903,7 @@ function connectNetworkGame() {
   state.running = true;
 
   ws.addEventListener("open", () => {
+    if (state.network.ws !== ws) return;
     ws.send(
       JSON.stringify({
         type: "join_game",
@@ -895,6 +921,7 @@ function connectNetworkGame() {
   });
 
   ws.addEventListener("message", (event) => {
+    if (state.network.ws !== ws) return;
     try {
       handleNetworkMessage(JSON.parse(event.data));
     } catch {
@@ -903,6 +930,8 @@ function connectNetworkGame() {
   });
 
   ws.addEventListener("close", () => {
+    if (state.network.ws !== ws) return;
+    state.network.ws = null;
     stopNetworkInputLoop();
     stopNetworkRenderLoop();
     if (state.running) {
@@ -1630,6 +1659,7 @@ function bindKeyboardEvents() {
     ensureAudioUnlocked();
     const trackedKeys = ["a", "A", "d", "D", "ArrowLeft", "ArrowRight"];
     if (!trackedKeys.includes(event.key)) return;
+    if (state.chatFocused || isTypingTarget(event.target)) return;
 
     event.preventDefault();
     state.keys.add(event.key);
@@ -1637,6 +1667,9 @@ function bindKeyboardEvents() {
   });
 
   window.addEventListener("keyup", (event) => {
+    const trackedKeys = ["a", "A", "d", "D", "ArrowLeft", "ArrowRight"];
+    if (!trackedKeys.includes(event.key)) return;
+    if (state.chatFocused || isTypingTarget(event.target)) return;
     state.keys.delete(event.key);
     syncNetworkInput();
   });
@@ -1667,6 +1700,8 @@ function bindChatEvents() {
 
   chatInputEl.addEventListener("focus", () => {
     state.chatFocused = true;
+    state.keys.clear();
+    syncNetworkInput(true);
   });
 
   chatInputEl.addEventListener("blur", () => {

@@ -49,6 +49,24 @@ const JUMP_GAME_SETTINGS = {
 
 const PLATFORM_KINDS = ['leaf', 'cloud', 'cake'];
 const JUMP_PROTOCOL_VERSION = 'jump/v1';
+const JUMP_BASE_STEP_MS = 1000 / 60;
+
+function getJumpSubstepCount() {
+  return Math.max(1, Math.round(JUMP_GAME_SETTINGS.tickMs / JUMP_BASE_STEP_MS));
+}
+
+function getJumpSubstepMs() {
+  return JUMP_GAME_SETTINGS.tickMs / getJumpSubstepCount();
+}
+
+function getJumpStepScale(stepMs) {
+  return stepMs / JUMP_BASE_STEP_MS;
+}
+
+function getStepBlend(baseFactor, stepMs, fullStepMs = JUMP_GAME_SETTINGS.tickMs) {
+  const clamped = clamp(baseFactor, 0, 1);
+  return 1 - Math.pow(1 - clamped, stepMs / fullStepMs);
+}
 
 function createPlatformMotion() {
   const roll = Math.random();
@@ -316,7 +334,6 @@ export class GameRoom {
     return {
       type,
       protocol: JUMP_PROTOCOL_VERSION,
-      mode: 'full',
       seq: this.jumpGame.messageSeq,
       running: this.jumpGame.running,
       waitingFor: Math.max(0, this.jumpGame.expectedPlayers - this._getGameSessions('jump-climber').filter(({ player }) => !player.isSpectator).length),
@@ -425,14 +442,38 @@ export class GameRoom {
     });
   }
 
-  _updateJumpCamera() {
+  _updateJumpCamera(stepMs = JUMP_GAME_SETTINGS.tickMs) {
     if (!this.jumpGame) return;
     const alivePlayers = Object.values(this.jumpGame.players).filter((player) => player.alive);
     if (alivePlayers.length === 0) return;
 
     const lowestVisiblePlayerY = Math.max(...alivePlayers.map((player) => player.y));
     const target = Math.min(this.jumpGame.cameraY, lowestVisiblePlayerY - 320);
-    this.jumpGame.cameraY += (target - this.jumpGame.cameraY) * 0.16;
+    this.jumpGame.cameraY += (target - this.jumpGame.cameraY) * getStepBlend(0.16, stepMs);
+  }
+
+  _tickJumpPlayer(player, stepScale) {
+    if (!this.jumpGame || !player.alive) return;
+
+    player.vx = player.inputDirection * JUMP_GAME_SETTINGS.moveSpeed;
+    player.x += player.vx * stepScale;
+    player.x = clamp(player.x, 0, JUMP_GAME_SETTINGS.worldWidth - player.width);
+
+    const previousY = player.y;
+    player.vy += JUMP_GAME_SETTINGS.gravity * stepScale;
+    player.y += player.vy * stepScale;
+
+    this._handleJumpLanding(player, previousY);
+    this._handleJumpBoostPickup(player);
+
+    const climbed = Math.max(0, Math.round((JUMP_GAME_SETTINGS.startLineY - player.y) / 10));
+    player.bestHeight = Math.max(player.bestHeight, climbed);
+
+    if (player.y > this.jumpGame.cameraY + JUMP_GAME_SETTINGS.arenaHeight + 140) {
+      player.alive = false;
+      player.vx = 0;
+      player.vy = 0;
+    }
   }
 
   async _finishJumpGame() {
@@ -469,38 +510,26 @@ export class GameRoom {
   async _tickJumpGame() {
     if (!this.jumpGame || !this.jumpGame.running) return;
 
-    this.jumpGame.elapsedMs += JUMP_GAME_SETTINGS.tickMs;
-    this._updateJumpPlatformMotion();
     this._ensureJumpPlatformsAbove();
+    const players = Object.values(this.jumpGame.players);
+    const substepMs = getJumpSubstepMs();
+    const stepScale = getJumpStepScale(substepMs);
+    const substepCount = getJumpSubstepCount();
 
-    Object.values(this.jumpGame.players).forEach((player) => {
-      if (!player.alive) return;
+    for (let step = 0; step < substepCount; step += 1) {
+      this.jumpGame.elapsedMs += substepMs;
+      this._updateJumpPlatformMotion();
+      players.forEach((player) => this._tickJumpPlayer(player, stepScale));
+      this._updateJumpCamera(substepMs);
 
-      player.vx = player.inputDirection * JUMP_GAME_SETTINGS.moveSpeed;
-      player.x += player.vx;
-      player.x = clamp(player.x, 0, JUMP_GAME_SETTINGS.worldWidth - player.width);
-
-      const previousY = player.y;
-      player.vy += JUMP_GAME_SETTINGS.gravity;
-      player.y += player.vy;
-
-      this._handleJumpLanding(player, previousY);
-      this._handleJumpBoostPickup(player);
-
-      const climbed = Math.max(0, Math.round((JUMP_GAME_SETTINGS.startLineY - player.y) / 10));
-      player.bestHeight = Math.max(player.bestHeight, climbed);
-
-      if (player.y > this.jumpGame.cameraY + JUMP_GAME_SETTINGS.arenaHeight + 140) {
-        player.alive = false;
-        player.vx = 0;
-        player.vy = 0;
+      if (players.every((player) => !player.alive)) {
+        break;
       }
-    });
+    }
 
-    this._updateJumpCamera();
     this._broadcastJumpPatch();
 
-    if (Object.values(this.jumpGame.players).every((player) => !player.alive)) {
+    if (players.every((player) => !player.alive)) {
       await this._finishJumpGame();
     }
   }
