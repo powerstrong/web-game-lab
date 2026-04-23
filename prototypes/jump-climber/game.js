@@ -124,6 +124,12 @@ const state = {
   playerTouchDirections: [0, 0],
   playerCount: 1,
   cameraY: 0,
+  arenaMetrics: {
+    clientWidth: 0,
+    clientHeight: 0,
+    scale: 1,
+    worldHeight: 0,
+  },
   isSpectator: false,
   chatInputOpen: false,
   chatFocused: false,
@@ -456,12 +462,40 @@ function getArenaScale() {
   return Math.min(1, arena.clientWidth / settings.worldWidth);
 }
 
-function applyArenaScale() {
-  const scale = getArenaScale();
+function applyArenaScale(force = false) {
+  if (!arena || !worldEl) return state.arenaMetrics;
+  const clientWidth = arena.clientWidth || 0;
+  const clientHeight = arena.clientHeight || 0;
+  const scale = clientWidth ? Math.min(1, clientWidth / settings.worldWidth) : 1;
+  const worldHeight = Math.ceil(clientHeight / Math.max(scale, 0.0001));
+  const metrics = state.arenaMetrics;
+
+  if (
+    !force &&
+    metrics.clientWidth === clientWidth &&
+    metrics.clientHeight === clientHeight &&
+    metrics.scale === scale &&
+    metrics.worldHeight === worldHeight
+  ) {
+    return metrics;
+  }
+
+  metrics.clientWidth = clientWidth;
+  metrics.clientHeight = clientHeight;
+  metrics.scale = scale;
+  metrics.worldHeight = worldHeight;
+
   worldEl.style.width = `${settings.worldWidth}px`;
-  worldEl.style.height = `${Math.ceil(arena.clientHeight / scale)}px`;
-  worldEl.style.transform = `scale(${scale})`;
+  worldEl.style.height = `${worldHeight}px`;
+  worldEl.style.transform = `translateZ(0) scale(${scale})`;
   worldEl.style.transformOrigin = "top left";
+  return metrics;
+}
+
+function formatWorldTranslate(x, y, extraTransform = "") {
+  const tx = Number.isFinite(x) ? x.toFixed(2) : "0.00";
+  const ty = Number.isFinite(y) ? y.toFixed(2) : "0.00";
+  return `translate3d(${tx}px, ${ty}px, 0)${extraTransform}`;
 }
 
 function clearNetworkWorld() {
@@ -799,11 +833,15 @@ function sampleBufferedNetworkState(now = performance.now()) {
 
 function renderNetworkPlatformEntry(entry, timeSeconds) {
   const { x, rotation } = samplePlatformMotion(entry, timeSeconds);
-  entry.el.style.transform = `translate(${x}px, ${entry.worldY - state.cameraY}px) rotate(${rotation}deg)`;
+  entry.el.style.transform = formatWorldTranslate(
+    x,
+    entry.worldY - state.cameraY,
+    ` rotate(${rotation.toFixed(2)}deg)`
+  );
 }
 
 function renderNetworkBoostEntry(entry) {
-  entry.el.style.transform = `translate(${entry.worldX}px, ${entry.worldY - state.cameraY}px)`;
+  entry.el.style.transform = formatWorldTranslate(entry.worldX, entry.worldY - state.cameraY);
 }
 
 function initializeEntityMotion(entry, x, y, rotation = 0) {
@@ -1035,7 +1073,7 @@ function renderNetworkFrame(now) {
       entry.currentY += (entry.serverY - entry.currentY) * 0.12;
     }
 
-    entry.el.style.transform = `translate(${entry.currentX}px, ${entry.currentY - state.cameraY}px)`;
+    entry.el.style.transform = formatWorldTranslate(entry.currentX, entry.currentY - state.cameraY);
   });
 
   state.effects.forEach((effect) => {
@@ -1407,6 +1445,10 @@ function clearWorld() {
   state.effects = [];
   state.touchAssignments.clear();
   state.playerTouchDirections = [0, 0];
+  state.arenaMetrics.clientWidth = 0;
+  state.arenaMetrics.clientHeight = 0;
+  state.arenaMetrics.scale = 1;
+  state.arenaMetrics.worldHeight = 0;
 }
 
 function resetWorld() {
@@ -1623,16 +1665,20 @@ function updatePlayerVisualState(player) {
 function render() {
   applyArenaScale();
   state.platforms.forEach((platform) => {
-    platform.el.style.transform = `translate(${platform.x}px, ${platform.y - state.cameraY}px) rotate(${platform.rotation || 0}deg)`;
+    platform.el.style.transform = formatWorldTranslate(
+      platform.x,
+      platform.y - state.cameraY,
+      ` rotate(${(platform.rotation || 0).toFixed(2)}deg)`
+    );
   });
 
   state.boosts.forEach((boost) => {
-    boost.el.style.transform = `translate(${boost.x}px, ${boost.y - state.cameraY}px)`;
+    boost.el.style.transform = formatWorldTranslate(boost.x, boost.y - state.cameraY);
   });
 
   state.players.forEach((player) => {
     updatePlayerVisualState(player);
-    player.el.style.transform = `translate(${player.x}px, ${player.y - state.cameraY}px)`;
+    player.el.style.transform = formatWorldTranslate(player.x, player.y - state.cameraY);
   });
 
   state.effects.forEach((effect) => {
@@ -1682,6 +1728,7 @@ function startGame() {
   if (isRoomSession) {
     hideResultsOverlay();
     showScreen("play");
+    requestAnimationFrame(() => applyArenaScale(true));
     connectNetworkGame();
     return;
   }
@@ -1701,6 +1748,7 @@ function startGame() {
   }
 
   updateHud();
+  applyArenaScale(true);
   render();
   setStatus(
     state.playerCount === 2
@@ -1968,7 +2016,7 @@ configureSessionMode();
 bindSetupEvents();
 bindKeyboardEvents();
 bindChatEvents();
-window.addEventListener("resize", applyArenaScale);
+window.addEventListener("resize", () => applyArenaScale(true));
 renderSetupUI();
 updateHud();
 showScreen("setup");
