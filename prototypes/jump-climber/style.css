@@ -10,6 +10,8 @@
   --mint: #63d5be;
   --danger: #ff6d78;
   --shadow: 0 18px 42px rgba(167, 100, 120, 0.18);
+  --phone-shell: 460px;
+  --page-gutter: clamp(12px, 4vw, 20px);
 }
 
 * {
@@ -23,12 +25,22 @@ body {
 
 body {
   margin: 0;
+  min-height: 100dvh;
+  padding:
+    max(12px, env(safe-area-inset-top, 0px))
+    var(--page-gutter)
+    calc(24px + env(safe-area-inset-bottom, 0px));
   color: var(--ink);
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   background:
     radial-gradient(circle at 20% 10%, rgba(255, 255, 255, 0.8), transparent 22%),
     radial-gradient(circle at 80% 0%, rgba(255, 255, 255, 0.5), transparent 18%),
     linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+}
+
+body:has(.screen--play.is-active) {
+  padding: 0;
+  overflow: hidden;
 }
 
 button,
@@ -42,14 +54,14 @@ button {
 }
 
 .game-shell {
-  width: min(100%, 430px);
+  width: min(100%, var(--phone-shell));
   margin: 0 auto;
-  padding: 14px;
+  padding: 0;
 }
 
 .game-shell:has(.screen--play.is-active) {
   padding: 0;
-  width: min(100%, 430px);
+  width: min(100%, var(--phone-shell));
 }
 
 .screen {
@@ -62,7 +74,7 @@ button {
 
 .screen--setup {
   display: none;
-  max-width: 720px;
+  max-width: var(--phone-shell);
   margin: 0 auto;
 }
 
@@ -146,12 +158,16 @@ button {
 }
 
 .setup-panel__head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   align-items: flex-start;
 }
 
 .count-switch {
-  display: inline-flex;
+  display: flex;
   gap: 8px;
+  width: 100%;
   padding: 6px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.75);
@@ -173,6 +189,7 @@ button {
 }
 
 .count-switch__button {
+  flex: 1;
   min-width: 66px;
   padding: 10px 14px;
   background: transparent;
@@ -290,6 +307,7 @@ button {
 }
 
 .primary-action {
+  width: 100%;
   padding: 12px 16px;
   font-weight: 700;
 }
@@ -609,6 +627,7 @@ button {
 
 .results-actions {
   display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
@@ -863,6 +882,17 @@ button {
 
   .results-actions {
     flex-direction: column;
+  }
+}
+
+@media (min-width: 720px) {
+  .screen--setup {
+    max-width: 520px;
+  }
+
+  .game-shell,
+  .game-shell:has(.screen--play.is-active) {
+    width: min(100%, 520px);
   }
 }
 

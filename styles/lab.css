@@ -11,6 +11,8 @@
   --mint: #37bba5;
   --border: rgba(24, 35, 56, 0.1);
   --shadow: 0 24px 60px rgba(70, 88, 146, 0.14);
+  --phone-shell: 460px;
+  --page-gutter: clamp(14px, 4vw, 24px);
 }
 
 * {
@@ -19,23 +21,28 @@
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
+  padding:
+    max(12px, env(safe-area-inset-top, 0px))
+    var(--page-gutter)
+    calc(28px + env(safe-area-inset-bottom, 0px));
   font-family: "Noto Sans KR", sans-serif;
   color: var(--ink);
   background:
     radial-gradient(circle at top left, rgba(75, 107, 255, 0.18), transparent 30%),
     radial-gradient(circle at 88% 18%, rgba(55, 187, 165, 0.14), transparent 20%),
     linear-gradient(180deg, #fbfcff 0%, var(--bg) 100%);
+  overflow-x: hidden;
 }
 
 .shell {
-  width: min(920px, calc(100% - 28px));
+  width: min(100%, var(--phone-shell));
   margin: 0 auto;
-  padding: 32px 0 56px;
+  padding: 0;
 }
 
 .hero {
-  border-radius: 32px;
+  border-radius: 28px;
   overflow: hidden;
   background: var(--surface-strong);
   box-shadow: var(--shadow);
@@ -44,9 +51,9 @@ body {
 .hero-media {
   display: grid;
   place-items: center;
-  min-height: 220px;
-  max-height: 420px;
-  padding: 18px 18px 0;
+  min-height: 180px;
+  max-height: 320px;
+  padding: 14px 14px 0;
   background:
     radial-gradient(circle at top left, rgba(255, 224, 236, 0.7), transparent 35%),
     radial-gradient(circle at top right, rgba(203, 238, 255, 0.65), transparent 30%),
@@ -57,7 +64,7 @@ body {
   display: block;
   width: 100%;
   max-width: 100%;
-  max-height: min(46vw, 380px);
+  max-height: min(72vw, 320px);
   height: auto;
   object-fit: contain;
   object-position: center top;
@@ -73,10 +80,10 @@ body {
 
 .hero-actions {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  padding: 20px 24px 24px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 18px;
 }
 
 .cta-button {
@@ -84,6 +91,7 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 54px;
+  width: 100%;
   padding: 0.85rem 1.5rem;
   border-radius: 999px;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
@@ -104,6 +112,7 @@ body {
   margin: 0;
   color: var(--muted);
   font-size: 0.94rem;
+  text-align: center;
 }
 
 .install-btn {
@@ -111,6 +120,8 @@ body {
   align-items: center;
   gap: 6px;
   min-height: 54px;
+  width: 100%;
+  justify-content: center;
   padding: 0.85rem 1.5rem;
   border: 1.5px solid var(--border);
   border-radius: 999px;
@@ -199,12 +210,12 @@ body {
 /* ── hub game grid ─────────────────────────────────────────────────────── */
 
 .games-section {
-  margin-top: 20px;
+  margin-top: 16px;
 }
 
 .hub-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 14px;
 }
 
@@ -306,29 +317,17 @@ body {
 
 /* ── responsive ─────────────────────────────────────────────────────────── */
 
-@media (max-width: 680px) {
+@media (min-width: 720px) {
   .shell {
-    width: min(100% - 18px, 920px);
-    padding-top: 18px;
-  }
-
-  .hero {
-    border-radius: 20px;
+    width: min(100%, 520px);
   }
 
   .hero-media {
-    min-height: 160px;
-    max-height: none;
-    padding: 12px 12px 0;
+    min-height: 220px;
+    max-height: 360px;
   }
 
   .hero-banner {
-    max-height: min(62vw, 260px);
-  }
-
-  .quick-steps,
-  .game-strip,
-  .hub-grid {
-    grid-template-columns: 1fr;
+    max-height: min(52vw, 340px);
   }
 }
