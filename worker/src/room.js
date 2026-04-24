@@ -5,9 +5,10 @@ const COLORS = [
 
 // Keep in sync with /games/registry.js (browser can't import that file here)
 const GAME_PATHS = {
-  'dodge-square':  '/prototypes/dodge-square/index.html',
-  'rhythm-tap':    '/prototypes/rhythm-tap/index.html',
-  'jump-climber':  '/prototypes/jump-climber/index.html',
+  'dodge-square':     '/prototypes/dodge-square/index.html',
+  'rhythm-tap':       '/prototypes/rhythm-tap/index.html',
+  'jump-climber':     '/prototypes/jump-climber/index.html',
+  'mallang-factory':  '/prototypes/mallang-factory/index.html',
 };
 
 function randomHex(len) {
@@ -58,6 +59,39 @@ const JUMP_PATCH_RATES = {
   playerMs: JUMP_GAME_SETTINGS.tickMs,
   spectatorMs: 100,
 };
+
+// ── 팩토리 게임 상수 ─────────────────────────────────────────────────────────
+
+const FACTORY_CONFIG = {
+  roundSec: 90,
+  tickMs: 1000,          // 1초 서버 틱
+  workbenchCount: 2,
+  maxActiveOrders: 2,
+  assemblyBaseSec: { mini_bot: 8, delivery_bot: 12, power_bot: 14 },
+  qualityMultiplier: { normal: 1.0, good: 1.1, perfect: 1.3 },
+};
+
+const FACTORY_PARTS = [
+  { id: 'frame',   name: '프레임', icon: '🔷' },
+  { id: 'circuit', name: '회로',   icon: '🟩' },
+  { id: 'wheel',   name: '바퀴',   icon: '🟡' },
+  { id: 'battery', name: '배터리', icon: '🔋' },
+];
+
+const FACTORY_RECIPES = [
+  { id: 'mini_bot',      name: '미니봇',  parts: ['frame', 'circuit'],           reward: 100 },
+  { id: 'delivery_bot',  name: '배달봇',  parts: ['frame', 'circuit', 'wheel'],  reward: 180 },
+  { id: 'power_bot',     name: '파워봇',  parts: ['frame', 'battery', 'wheel'],  reward: 200 },
+];
+
+function factoryMakeOrder(id) {
+  const recipe = FACTORY_RECIPES[Math.floor(Math.random() * FACTORY_RECIPES.length)];
+  return { id, recipeId: recipe.id, status: 'active' };
+}
+
+function factoryMakeWorkbench(id) {
+  return { id, assignedOrderId: null, recipeId: null, parts: [], state: 'idle', helpedBy: [], assemblyEndsAt: null };
+}
 
 function getJumpSubstepCount() {
   return Math.max(1, Math.round(JUMP_GAME_SETTINGS.tickMs / JUMP_BASE_STEP_MS));
@@ -137,6 +171,8 @@ export class GameRoom {
     this.env = env;
     this.jumpGame = null;
     this.jumpLoop = null;
+    this.factoryGame = null;
+    this.factoryLoop = null;
   }
 
   // Returns [{ws, player}] for all connected, registered players
@@ -612,6 +648,10 @@ export class GameRoom {
   }
 
   async _handleJoinGame(ws, msg) {
+    if (msg.gameId === 'mallang-factory') {
+      return await this._handleFactoryJoinGame(ws, msg);
+    }
+
     const currentGame = (await this.state.storage.get('currentGame')) || null;
     const phase = (await this.state.storage.get('phase')) || 'lobby';
     const fullRoster = (await this.state.storage.get('gameRoster')) || [];
@@ -723,6 +763,31 @@ export class GameRoom {
       case 'player_input':  if (player) this._handlePlayerInput(player, msg);             break;
       case 'submit_result': if (player) await this._handleSubmitResult(player, msg);      break;
       case 'rematch':       if (player) await this._handleRematch();                       break;
+      // ── 팩토리 게임 액션 ──
+      case 'FACTORY_READY':
+        if (player) await this._handleFactoryReady(player);
+        break;
+      case 'ASSIGN_ORDER_TO_WORKBENCH':
+        if (player) this._handleFactoryAssign(player, msg);
+        break;
+      case 'ADD_PART':
+        if (player) this._handleFactoryAddPart(player, msg);
+        break;
+      case 'CLEAR_WORKBENCH':
+        if (player) this._handleFactoryClear(player, msg);
+        break;
+      case 'HELP_ASSEMBLY':
+        if (player) this._handleFactoryHelp(player, msg);
+        break;
+      case 'DELIVER':
+        if (player) await this._handleFactoryDeliver(player, msg);
+        break;
+      case 'SELECT_ORDER':
+        if (player) this._handleFactorySelectOrder(player, msg);
+        break;
+      case 'SELECT_WORKBENCH':
+        if (player) this._handleFactorySelectWorkbench(player, msg);
+        break;
       case 'ping':
         ws.send(JSON.stringify({
           type: 'pong',
@@ -912,5 +977,296 @@ export class GameRoom {
     const players  = sessions.map(s => s.player);
     this._broadcastAll({ type: 'player_left', playerId: player.id, name: player.name });
     this._broadcastAll({ type: 'players_update', players });
+  }
+
+  // ── 팩토리 게임 메서드 ──────────────────────────────────────────────────────
+
+  _getFactorySessions() {
+    return this._getGameSessions('mallang-factory');
+  }
+
+  _broadcastFactory(msg) {
+    this._broadcastGame(msg, 'mallang-factory');
+  }
+
+  _broadcastFactoryState() {
+    if (!this.factoryGame) return;
+    this._broadcastFactory({ type: 'STATE_SYNC', state: this.factoryGame });
+  }
+
+  async _handleFactoryJoinGame(ws, msg) {
+    const currentGame = (await this.state.storage.get('currentGame')) || null;
+    const phase       = (await this.state.storage.get('phase'))       || 'lobby';
+    const fullRoster  = (await this.state.storage.get('gameRoster'))  || [];
+
+    if (currentGame !== 'mallang-factory' || phase !== 'playing') {
+      ws.send(JSON.stringify({ type: 'ERROR', message: '팩토리 게임이 아직 시작되지 않았습니다.' }));
+      return;
+    }
+
+    const rosterPlayer = fullRoster.find(p => p.id === msg.playerId);
+    if (!rosterPlayer) {
+      ws.send(JSON.stringify({ type: 'ERROR', message: '플레이어 정보가 일치하지 않습니다.' }));
+      return;
+    }
+
+    ws.serializeAttachment({
+      ...rosterPlayer,
+      role: 'game',
+      gameId: 'mallang-factory',
+      ready: false,
+      selectedOrderId: null,
+      selectedWorkbenchId: null,
+    });
+
+    if (!this.factoryGame) this._initFactoryGame(fullRoster.slice(0, 2));
+
+    // 플레이어가 현재 상태 즉시 수신
+    ws.send(JSON.stringify({ type: 'STATE_SYNC', state: this.factoryGame }));
+  }
+
+  _initFactoryGame(roster) {
+    const orders = [
+      factoryMakeOrder('o1'),
+      factoryMakeOrder('o2'),
+    ];
+    const workbenches = [
+      factoryMakeWorkbench('wb1'),
+      factoryMakeWorkbench('wb2'),
+    ];
+    this.factoryGame = {
+      phase: 'waiting',   // waiting | playing | finished
+      players: roster.map(p => ({
+        id: p.id,
+        name: p.name,
+        color: p.color,
+        colorIndex: p.colorIndex,
+        selectedOrderId: null,
+        selectedWorkbenchId: null,
+      })),
+      timeLeft: FACTORY_CONFIG.roundSec,
+      score: 0,
+      ordersCompleted: 0,
+      perfectCount: 0,
+      currentStreak: 0,
+      maxStreak: 0,
+      mostMade: {},
+      orders,
+      workbenches,
+      nextOrderSeq: 3,
+    };
+  }
+
+  async _handleFactoryReady(player) {
+    if (!this.factoryGame) return;
+
+    // 플레이어 ready 상태 업데이트
+    const factoryPlayer = this.factoryGame.players.find(p => p.id === player.id);
+    if (factoryPlayer) factoryPlayer.ready = true;
+
+    // 세션의 WS attachment도 업데이트
+    const session = this._getFactorySessions().find(s => s.player.id === player.id);
+    if (session) session.ws.serializeAttachment({ ...session.player, ready: true });
+
+    const allReady = this.factoryGame.players.every(p => p.ready);
+    if (allReady && this.factoryGame.phase === 'waiting') {
+      this._startFactoryGame();
+    } else {
+      this._broadcastFactoryState();
+    }
+  }
+
+  _startFactoryGame() {
+    if (!this.factoryGame) return;
+    this.factoryGame.phase = 'playing';
+    this.factoryGame.startedAt = Date.now();
+    this._broadcastFactoryState();
+    this._startFactoryLoop();
+  }
+
+  _startFactoryLoop() {
+    if (this.factoryLoop) clearInterval(this.factoryLoop);
+    this.factoryLoop = setInterval(() => {
+      this._tickFactory().catch(() => {});
+    }, FACTORY_CONFIG.tickMs);
+  }
+
+  async _tickFactory() {
+    const fg = this.factoryGame;
+    if (!fg || fg.phase !== 'playing') return;
+
+    fg.timeLeft = Math.max(0, fg.timeLeft - 1);
+
+    // 조립 완료 체크
+    const now = Date.now();
+    for (const wb of fg.workbenches) {
+      if (wb.state === 'assembling' && wb.assemblyEndsAt && now >= wb.assemblyEndsAt) {
+        wb.state = 'completed';
+        wb.assemblyEndsAt = null;
+        this._broadcastFactory({ type: 'EVENT', event: 'ASSEMBLY_DONE', payload: { workbenchId: wb.id } });
+      }
+    }
+
+    if (fg.timeLeft <= 0) {
+      await this._finishFactory();
+      return;
+    }
+
+    this._broadcastFactoryState();
+  }
+
+  async _finishFactory() {
+    const fg = this.factoryGame;
+    if (!fg) return;
+    fg.phase = 'finished';
+    if (this.factoryLoop) { clearInterval(this.factoryLoop); this.factoryLoop = null; }
+    this._broadcastFactoryState();
+
+    // 결과를 lobby scores에 저장
+    const scores = (await this.state.storage.get('scores')) || {};
+    for (const p of fg.players) {
+      scores[p.id] = { id: p.id, name: p.name, color: p.color, score: fg.score };
+    }
+    await this.state.storage.put('scores', scores);
+    await this.state.storage.put('phase', 'results');
+  }
+
+  _handleFactorySelectOrder(player, msg) {
+    if (!this.factoryGame || this.factoryGame.phase !== 'playing') return;
+    const fp = this.factoryGame.players.find(p => p.id === player.id);
+    if (fp) fp.selectedOrderId = msg.orderId ?? null;
+    this._broadcastFactoryState();
+  }
+
+  _handleFactorySelectWorkbench(player, msg) {
+    if (!this.factoryGame || this.factoryGame.phase !== 'playing') return;
+    const fp = this.factoryGame.players.find(p => p.id === player.id);
+    if (fp) fp.selectedWorkbenchId = msg.workbenchId ?? null;
+    this._broadcastFactoryState();
+  }
+
+  _handleFactoryAssign(player, msg) {
+    const fg = this.factoryGame;
+    if (!fg || fg.phase !== 'playing') return;
+    const { orderId, workbenchId } = msg;
+    const order = fg.orders.find(o => o.id === orderId && o.status === 'active');
+    const wb    = fg.workbenches.find(w => w.id === workbenchId);
+    if (!order || !wb || wb.state !== 'idle') return;
+
+    const recipe = FACTORY_RECIPES.find(r => r.id === order.recipeId);
+    if (!recipe) return;
+
+    wb.assignedOrderId = orderId;
+    wb.recipeId = order.recipeId;
+    wb.parts = [];
+    wb.helpedBy = [];
+
+    const fp = fg.players.find(p => p.id === player.id);
+    if (fp) { fp.selectedOrderId = orderId; fp.selectedWorkbenchId = workbenchId; }
+
+    this._broadcastFactory({ type: 'EVENT', event: 'ORDER_ASSIGNED', payload: { orderId, workbenchId, playerName: player.name } });
+    this._broadcastFactoryState();
+  }
+
+  _handleFactoryAddPart(player, msg) {
+    const fg = this.factoryGame;
+    if (!fg || fg.phase !== 'playing') return;
+    const { workbenchId, partId } = msg;
+    const wb = fg.workbenches.find(w => w.id === workbenchId);
+    if (!wb || wb.state !== 'idle' || !wb.recipeId) return;
+
+    const recipe = FACTORY_RECIPES.find(r => r.id === wb.recipeId);
+    if (!recipe || !recipe.parts.includes(partId)) return;
+
+    // 이미 넣은 자재 중복 체크
+    const needed = recipe.parts.filter(p => p !== wb.parts.find(ep => ep === p));
+    if (!needed.includes(partId)) return;
+
+    wb.parts.push(partId);
+    this._broadcastFactory({ type: 'EVENT', event: 'PART_ADDED', payload: { workbenchId, partId, playerName: player.name } });
+
+    // 모든 자재가 다 들어오면 조립 시작
+    const allFilled = recipe.parts.every(p => {
+      const count = wb.parts.filter(ep => ep === p).length;
+      const needed_ = recipe.parts.filter(ep => ep === p).length;
+      return count >= needed_;
+    });
+
+    if (allFilled) {
+      this._startAssembly(wb, recipe);
+    }
+    this._broadcastFactoryState();
+  }
+
+  _startAssembly(wb, recipe) {
+    const baseSec = FACTORY_CONFIG.assemblyBaseSec[recipe.id] ?? 10;
+    wb.state = 'assembling';
+    wb.assemblyEndsAt = Date.now() + baseSec * 1000;
+    wb.helpedBy = [];
+  }
+
+  _handleFactoryHelp(player, msg) {
+    const fg = this.factoryGame;
+    if (!fg || fg.phase !== 'playing') return;
+    const wb = fg.workbenches.find(w => w.id === msg.workbenchId);
+    if (!wb || wb.state !== 'assembling') return;
+    if (wb.helpedBy.includes(player.id)) return;
+    wb.helpedBy.push(player.id);
+    this._broadcastFactory({ type: 'EVENT', event: 'HELPED', payload: { workbenchId: wb.id, playerName: player.name } });
+    this._broadcastFactoryState();
+  }
+
+  _handleFactoryClear(player, msg) {
+    const fg = this.factoryGame;
+    if (!fg || fg.phase !== 'playing') return;
+    const wb = fg.workbenches.find(w => w.id === msg.workbenchId);
+    if (!wb || wb.state === 'assembling' || wb.state === 'completed') return;
+    wb.assignedOrderId = null;
+    wb.recipeId = null;
+    wb.parts = [];
+    wb.helpedBy = [];
+    wb.state = 'idle';
+    wb.assemblyEndsAt = null;
+    this._broadcastFactoryState();
+  }
+
+  async _handleFactoryDeliver(player, msg) {
+    const fg = this.factoryGame;
+    if (!fg || fg.phase !== 'playing') return;
+    const wb = fg.workbenches.find(w => w.id === msg.workbenchId);
+    if (!wb || wb.state !== 'completed') return;
+
+    const recipe = FACTORY_RECIPES.find(r => r.id === wb.recipeId);
+    if (!recipe) return;
+
+    // 품질 계산
+    const helpers = wb.helpedBy.length;
+    const qualityKey = helpers >= 2 ? 'perfect' : helpers === 1 ? 'good' : 'normal';
+    const multiplier = FACTORY_CONFIG.qualityMultiplier[qualityKey];
+    const reward = Math.round(recipe.reward * multiplier);
+
+    fg.score += reward;
+    fg.ordersCompleted += 1;
+    fg.currentStreak += 1;
+    if (fg.currentStreak > fg.maxStreak) fg.maxStreak = fg.currentStreak;
+    if (qualityKey === 'perfect') fg.perfectCount += 1;
+    fg.mostMade[recipe.id] = (fg.mostMade[recipe.id] || 0) + 1;
+
+    // 완료된 주문을 새 주문으로 교체
+    const orderIdx = fg.orders.findIndex(o => o.id === wb.assignedOrderId);
+    if (orderIdx !== -1) {
+      fg.orders[orderIdx] = factoryMakeOrder(`o${fg.nextOrderSeq++}`);
+    }
+
+    // 작업대 초기화
+    wb.assignedOrderId = null;
+    wb.recipeId = null;
+    wb.parts = [];
+    wb.state = 'idle';
+    wb.helpedBy = [];
+    wb.assemblyEndsAt = null;
+
+    this._broadcastFactory({ type: 'EVENT', event: 'DELIVERED', payload: { reward, quality: qualityKey, playerName: player.name, recipeName: recipe.name } });
+    this._broadcastFactoryState();
   }
 }
