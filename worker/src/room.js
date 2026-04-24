@@ -1200,8 +1200,10 @@ export class GameRoom {
 
   _startAssembly(wb, recipe) {
     const baseSec = FACTORY_CONFIG.assemblyBaseSec[recipe.id] ?? 10;
+    const now = Date.now();
     wb.state = 'assembling';
-    wb.assemblyEndsAt = Date.now() + baseSec * 1000;
+    wb.assemblyStartedAt = now;
+    wb.assemblyEndsAt = now + baseSec * 1000;
     wb.helpedBy = [];
   }
 

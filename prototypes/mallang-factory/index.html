@@ -2,102 +2,111 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>말랑프렌즈 팩토리</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <main class="game-shell">
+    <main class="factory-app">
 
-      <!-- 설정 화면 -->
-      <section id="setupScreen" class="screen screen--setup is-active">
-        <div class="setup-banner">
-          <img src="/assets/main banner.png" alt="말랑프렌즈 아케이드" class="setup-banner__img" />
-        </div>
-
-        <div class="setup-panel">
-          <h1 class="setup-title">🤖 말랑프렌즈 팩토리</h1>
-          <p class="setup-subtitle">2인 협동으로 미니봇을 만들어 납품하세요!</p>
-
-          <div class="setup-controls">
-            <div class="control-card control-card--p1">
-              <div class="control-card__char">🐰</div>
-              <div class="control-card__info">
-                <strong>1P — 토끼</strong>
-                <span>이동: WASD</span>
-                <span>줍기/놓기/QTE: Space</span>
-              </div>
-            </div>
-            <div class="control-card control-card--p2">
-              <div class="control-card__char">🐹</div>
-              <div class="control-card__info">
-                <strong>2P — 햄스터</strong>
-                <span>이동: 방향키</span>
-                <span>줍기/놓기/QTE: Enter</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="setup-goal">
-            <span class="setup-goal__icon">🎯</span>
-            <span>4분 안에 <strong>800코인</strong>을 달성하면 성공!</span>
-          </div>
-
-          <button id="startBtn" class="btn-start">게임 시작!</button>
+      <!-- ── 대기 화면 ── -->
+      <section id="waitScreen" class="screen is-active">
+        <div class="wait-card">
+          <div class="wait-logo">🤖</div>
+          <h1 class="wait-title">말랑프렌즈 팩토리</h1>
+          <p class="wait-sub">온라인 2인 협동 생산 게임</p>
+          <div id="waitPlayers" class="wait-players"></div>
+          <p id="waitStatus" class="wait-status">상대방을 기다리는 중...</p>
+          <button id="readyBtn" class="btn btn--primary" disabled>준비 완료!</button>
         </div>
       </section>
 
-      <!-- 게임 화면 -->
-      <section id="gameScreen" class="screen screen--game">
-        <div class="game-hud">
-          <div class="hud-left">
-            <span class="hud-label">⏱️ 남은 시간</span>
-            <span id="hudTimer" class="hud-value hud-timer">4:00</span>
+      <!-- ── 게임 화면 ── -->
+      <section id="gameScreen" class="screen">
+
+        <!-- HUD -->
+        <header class="hud">
+          <div class="hud-timer">
+            <span class="hud-label">⏱️</span>
+            <span id="hudTimer" class="hud-value">1:30</span>
           </div>
-          <div class="hud-center">
-            <span class="hud-label">🪙 코인</span>
-            <span id="hudCoins" class="hud-value hud-coins">0</span>
-            <span class="hud-separator">/</span>
-            <span class="hud-target">800</span>
+          <div class="hud-score">
+            <span class="hud-label">🪙</span>
+            <span id="hudScore" class="hud-value">0</span>
           </div>
-          <div class="hud-right">
-            <span class="hud-label">🤖 도우미</span>
-            <span id="hudHelperLevel" class="hud-value">Lv.1</span>
+          <div class="hud-orders">
+            <span class="hud-label">📦</span>
+            <span id="hudOrders" class="hud-value">0</span>
           </div>
+        </header>
+
+        <!-- 이벤트 토스트 -->
+        <div id="toastArea" class="toast-area"></div>
+
+        <!-- 주문 카드 영역 -->
+        <section class="panel-label">주문</section>
+        <div id="ordersPanel" class="orders-panel">
+          <!-- JS로 렌더링 -->
         </div>
-        <canvas id="gameCanvas" width="800" height="500"></canvas>
+
+        <!-- 작업대 영역 -->
+        <section class="panel-label">작업대</section>
+        <div id="workbenchesPanel" class="workbenches-panel">
+          <!-- JS로 렌더링 -->
+        </div>
+
+        <!-- 자재 버튼 -->
+        <footer class="parts-bar">
+          <button class="part-btn" data-part="frame">
+            <span class="part-icon">🔷</span>
+            <span class="part-name">프레임</span>
+          </button>
+          <button class="part-btn" data-part="circuit">
+            <span class="part-icon">🟩</span>
+            <span class="part-name">회로</span>
+          </button>
+          <button class="part-btn" data-part="wheel">
+            <span class="part-icon">🟡</span>
+            <span class="part-name">바퀴</span>
+          </button>
+          <button class="part-btn" data-part="battery">
+            <span class="part-icon">🔋</span>
+            <span class="part-name">배터리</span>
+          </button>
+        </footer>
+
       </section>
 
-      <!-- 결과 화면 -->
-      <section id="resultScreen" class="screen screen--result">
-        <div class="result-panel">
-          <div id="resultBadge" class="result-badge"></div>
-          <h2 id="resultTitle" class="result-title"></h2>
+      <!-- ── 결과 화면 ── -->
+      <section id="resultScreen" class="screen">
+        <div class="result-card">
+          <div id="resultEmoji" class="result-emoji">🎉</div>
+          <h2 id="resultTitle" class="result-title">게임 종료!</h2>
 
           <div class="result-stats">
             <div class="result-stat">
-              <span class="result-stat__label">최종 코인</span>
-              <span id="resFinalCoins" class="result-stat__value"></span>
+              <span class="result-stat__label">🪙 최종 점수</span>
+              <span id="resFinalScore" class="result-stat__value result-stat__value--big"></span>
             </div>
             <div class="result-stat">
-              <span class="result-stat__label">목표 코인</span>
-              <span class="result-stat__value">800</span>
+              <span class="result-stat__label">📦 완료 주문</span>
+              <span id="resOrders" class="result-stat__value"></span>
             </div>
             <div class="result-stat">
-              <span class="result-stat__label">납품한 미니봇</span>
-              <span id="resDelivered" class="result-stat__value"></span>
-            </div>
-            <div class="result-stat">
-              <span class="result-stat__label">⭐ Perfect</span>
+              <span class="result-stat__label">⭐ Perfect 협동</span>
               <span id="resPerfect" class="result-stat__value"></span>
             </div>
             <div class="result-stat">
-              <span class="result-stat__label">✨ Good</span>
-              <span id="resGood" class="result-stat__value"></span>
+              <span class="result-stat__label">🔥 최고 연속</span>
+              <span id="resStreak" class="result-stat__value"></span>
+            </div>
+            <div class="result-stat result-stat--wide">
+              <span class="result-stat__label">🏆 가장 많이 만든 로봇</span>
+              <span id="resMostMade" class="result-stat__value"></span>
             </div>
           </div>
 
-          <button id="retryBtn" class="btn-start btn-start--secondary">다시 하기</button>
+          <button id="retryBtn" class="btn btn--secondary">다시 하기</button>
         </div>
       </section>
 
