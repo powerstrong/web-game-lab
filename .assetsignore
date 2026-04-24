@@ -1,0 +1,13 @@
+.assetsignore
+.git/
+.github/
+.omc/
+.omx/
+.wrangler/
+docs/
+worker/
+node_modules/
+**/node_modules/
+README.md
+wrangler.jsonc
+*.log
