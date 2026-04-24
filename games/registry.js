@@ -1,7 +1,6 @@
-/* Canonical game registry — single source of truth for all game metadata.
+/* Canonical game registry: single source of truth for browser-facing metadata.
  * Loaded as a plain script tag; sets window.GAME_REGISTRY.
- * Any page that lists or routes to games should load this first.
- * worker/src/room.js mirrors the paths — keep them in sync manually. */
+ * worker/src/room.js mirrors the playable paths, so keep them in sync. */
 
 window.GAME_REGISTRY = [
   {
@@ -23,21 +22,21 @@ window.GAME_REGISTRY = [
     path: '/prototypes/jump-climber/index.html',
   },
   {
-    id: 'mallang-factory',
-    title: '말랑프렌즈 팩토리',
-    description: '2인 협동으로 부품을 모아 미니봇을 만들고 납품하세요! QTE 타이밍으로 보너스 획득',
+    id: 'mallang-rescue',
+    title: '말랑프렌즈 풍선 구조대',
+    description: '공중 지원과 지상 구조가 풍선과 쿠션을 조합해 떨어지는 친구들을 구하는 2인 협동 아케이드입니다.',
     type: 'DUEL_LIVE',
     recommendedPlayers: '2명',
     supportedPlayers: '2명',
-    playMode: '로컬 협동',
-    durationSeconds: 240,
+    playMode: '온라인 협동',
+    durationSeconds: 75,
     status: 'PLAYABLE',
-    icon: '🤖',
-    accentColor: '#7ecfff',
-    resultLabel: '최종 코인',
-    resultUnit: '코인',
+    icon: 'BR',
+    accentColor: '#38bdf8',
+    resultLabel: '구조 점수',
+    resultUnit: '점',
     resultScale: 1,
     resultDecimals: 0,
-    path: '/prototypes/mallang-factory/index.html',
+    path: '/prototypes/mallang-rescue/index.html',
   },
 ];

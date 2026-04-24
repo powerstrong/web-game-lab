@@ -266,6 +266,30 @@ function slotLabel(slot) {
   return `${slot + 1}P`;
 }
 
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return char;
+    }
+  });
+}
+
+function getAvatarLabel(name, fallback = "") {
+  const trimmed = typeof name === "string" ? name.trim() : "";
+  return trimmed || fallback;
+}
+
 function getCharacter(characterId) {
   return CHARACTER_MAP[characterId] || CHARACTER_LIST[0];
 }
@@ -292,7 +316,7 @@ function createAvatarMarkup(setup, label, compact = false, pose = "preview") {
 
   return `
     <div class="${classes.join(" ")} is-rising" style="${style}">
-      ${label ? `<span class="avatar__label">${label}</span>` : ""}
+      ${label ? `<span class="avatar__label">${escapeHtml(label)}</span>` : ""}
       <div class="avatar__character">
         <img class="avatar__sprite" src="${getSpriteSrc(character, pose)}" alt="${character.name}" />
         ${
@@ -937,7 +961,7 @@ function updateNetworkTargets(snapshot) {
       if (entry.characterId !== player.characterId || !entry.spriteEl) {
         entry.el.innerHTML = createAvatarMarkup(
           setupForRender,
-          `${player.slot + 1}P`,
+          getAvatarLabel(player.name, `${player.slot + 1}P`),
           false,
           pose
         );
@@ -1469,7 +1493,10 @@ function createPlayer(slot) {
   const positions = state.playerCount === 1 ? [228] : [155, 300];
   const el = document.createElement("div");
   el.className = "player";
-  el.innerHTML = createAvatarMarkup(state.setup[slot], `${slot + 1}P`, false, "jump_neutral");
+  const localLabel = slot === 0
+    ? getAvatarLabel(gameBoot?.name, `${slot + 1}P`)
+    : `${slot + 1}P`;
+  el.innerHTML = createAvatarMarkup(state.setup[slot], localLabel, false, "jump_neutral");
   worldEl.appendChild(el);
 
   return {

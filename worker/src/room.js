@@ -6,7 +6,7 @@ const COLORS = [
 // Keep in sync with /games/registry.js (browser can't import that file here)
 const GAME_PATHS = {
   'jump-climber':     '/prototypes/jump-climber/index.html',
-  'mallang-factory':  '/prototypes/mallang-factory/index.html',
+  'mallang-rescue':   '/prototypes/mallang-rescue/index.html',
 };
 
 function randomHex(len) {
@@ -86,6 +86,28 @@ function factoryMakeOrder(id) {
   const recipe = FACTORY_RECIPES[Math.floor(Math.random() * FACTORY_RECIPES.length)];
   return { id, recipeId: recipe.id, status: 'active' };
 }
+
+const RESCUE_CONFIG = {
+  durationMs: 75000,
+  tickMs: 100,
+  laneCount: 4,
+  rescueLineY: 92,
+  balloonLineY: 48,
+  maxFallers: 9,
+};
+
+const RESCUE_TOOLS = {
+  balloon: { id: 'balloon', name: '풍선', ownerRole: 'air', cooldownMs: 2500, durationMs: 3000 },
+  wind: { id: 'wind', name: '바람', ownerRole: 'air', cooldownMs: 5000, durationMs: 0 },
+  cushion: { id: 'cushion', name: '쿠션', ownerRole: 'ground', cooldownMs: 2500, durationMs: 3000 },
+  spring: { id: 'spring', name: '점프대', ownerRole: 'ground', cooldownMs: 6000, durationMs: 2500 },
+};
+
+const RESCUE_FALLERS = [
+  { id: 'chick', name: '병아리', icon: '🐥', speed: 0.030, weight: 'light', baseScore: 80 },
+  { id: 'rabbit', name: '토끼', icon: '🐰', speed: 0.042, weight: 'normal', baseScore: 100 },
+  { id: 'hamster', name: '햄스터', icon: '🐹', speed: 0.056, weight: 'heavy', baseScore: 150 },
+];
 
 function factoryMakeWorkbench(id) {
   return { id, assignedOrderId: null, recipeId: null, parts: [], state: 'idle', helpedBy: [], assemblyEndsAt: null };
@@ -171,6 +193,8 @@ export class GameRoom {
     this.jumpLoop = null;
     this.factoryGame = null;
     this.factoryLoop = null;
+    this.rescueGame = null;
+    this.rescueLoop = null;
   }
 
   // Returns [{ws, player}] for all connected, registered players
@@ -646,6 +670,10 @@ export class GameRoom {
   }
 
   async _handleJoinGame(ws, msg) {
+    if (msg.gameId === 'mallang-rescue') {
+      return await this._handleRescueJoinGame(ws, msg);
+    }
+
     if (msg.gameId === 'mallang-factory') {
       return await this._handleFactoryJoinGame(ws, msg);
     }
@@ -786,6 +814,16 @@ export class GameRoom {
       case 'SELECT_WORKBENCH':
         if (player) this._handleFactorySelectWorkbench(player, msg);
         break;
+      case 'RESCUE_READY':
+      case 'SET_READY':
+        if (player?.gameId === 'mallang-rescue') await this._handleRescueReady(player, msg);
+        break;
+      case 'SELECT_TOOL':
+        if (player?.gameId === 'mallang-rescue') this._handleRescueSelectTool(player, msg);
+        break;
+      case 'PLACE_TOOL':
+        if (player?.gameId === 'mallang-rescue') this._handleRescuePlaceTool(player, msg);
+        break;
       case 'ping':
         ws.send(JSON.stringify({
           type: 'pong',
@@ -898,6 +936,8 @@ export class GameRoom {
     await this.state.storage.delete('scores');
     this.jumpGame = null;
     this._stopJumpLoop();
+    this.rescueGame = null;
+    this._stopRescueLoop();
     await this.state.storage.put('phase', 'countdown');
     for (const seconds of [3, 2, 1]) {
       this._broadcastAll({ type: 'countdown', seconds });
@@ -931,6 +971,8 @@ export class GameRoom {
     await this.state.storage.delete('gameRoster');
     this.jumpGame = null;
     this._stopJumpLoop();
+    this.rescueGame = null;
+    this._stopRescueLoop();
     // Reset player votes
     for (const { ws, player } of this._getLobbySessions()) {
       ws.serializeAttachment({ ...player, gameVote: null, startVote: false });
@@ -967,6 +1009,16 @@ export class GameRoom {
         await this._finishJumpGame();
       } else {
         this._broadcastJumpPatch();
+      }
+      return;
+    }
+
+    if (player.role === 'game' && player.gameId === 'mallang-rescue' && this.rescueGame) {
+      const target = this.rescueGame.players.find((entry) => entry.id === player.id);
+      if (target) {
+        target.connected = false;
+        target.ready = false;
+        this._broadcastRescueState();
       }
       return;
     }
@@ -1268,5 +1320,464 @@ export class GameRoom {
 
     this._broadcastFactory({ type: 'EVENT', event: 'DELIVERED', payload: { reward, quality: qualityKey, playerName: player.name, recipeName: recipe.name } });
     this._broadcastFactoryState();
+  }
+
+  // Mallang Rescue game methods
+
+  _getRescueSessions() {
+    return this._getGameSessions('mallang-rescue');
+  }
+
+  _broadcastRescue(msg) {
+    this._broadcastGame(msg, 'mallang-rescue');
+  }
+
+  _broadcastRescueState() {
+    if (!this.rescueGame) return;
+    this._broadcastRescue({ type: 'STATE_SYNC', state: this._serializeRescueState() });
+  }
+
+  _serializeRescueState() {
+    const game = this.rescueGame;
+    const now = Date.now();
+    const timeLeftMs = game.phase === 'playing'
+      ? Math.max(0, game.durationMs - (now - game.startedAt))
+      : game.timeLeftMs;
+
+    return {
+      phase: game.phase,
+      players: game.players,
+      startedAt: game.startedAt,
+      durationMs: game.durationMs,
+      timeLeftMs,
+      score: game.score,
+      combo: game.combo,
+      maxCombo: game.maxCombo,
+      rescuedCount: game.rescuedCount,
+      missedCount: game.missedCount,
+      coopCount: game.coopCount,
+      fallers: game.fallers,
+      tools: game.tools,
+      cooldowns: game.cooldowns,
+      lastEvent: game.lastEvent,
+    };
+  }
+
+  _initRescueGame(roster) {
+    const players = roster.slice(0, 2).map((player, index) => {
+      const role = index === 0 ? 'air' : 'ground';
+      return {
+        id: player.id,
+        name: player.name,
+        color: player.color,
+        colorIndex: player.colorIndex,
+        role,
+        ready: false,
+        connected: false,
+        selectedTool: role === 'air' ? 'balloon' : 'cushion',
+      };
+    });
+
+    const cooldowns = {};
+    for (const player of players) {
+      cooldowns[player.id] = {};
+      for (const tool of Object.values(RESCUE_TOOLS)) {
+        if (tool.ownerRole === player.role) cooldowns[player.id][tool.id] = 0;
+      }
+    }
+
+    this.rescueGame = {
+      phase: 'waiting',
+      players,
+      durationMs: RESCUE_CONFIG.durationMs,
+      timeLeftMs: RESCUE_CONFIG.durationMs,
+      startedAt: null,
+      lastTickAt: null,
+      lastSpawnAt: 0,
+      nextFallerId: 1,
+      nextToolId: 1,
+      score: 0,
+      combo: 0,
+      maxCombo: 0,
+      rescuedCount: 0,
+      missedCount: 0,
+      coopCount: 0,
+      fallers: [],
+      tools: [],
+      cooldowns,
+      lastEvent: null,
+    };
+  }
+
+  async _handleRescueJoinGame(ws, msg) {
+    const currentGame = (await this.state.storage.get('currentGame')) || null;
+    const phase = (await this.state.storage.get('phase')) || 'lobby';
+    const fullRoster = (await this.state.storage.get('gameRoster')) || [];
+    const rescueRoster = fullRoster.slice(0, 2);
+
+    if (currentGame !== 'mallang-rescue' || phase !== 'playing') {
+      ws.send(JSON.stringify({ type: 'ERROR', message: '풍선 구조대 방이 아직 시작되지 않았습니다.' }));
+      return;
+    }
+
+    const rosterPlayer = rescueRoster.find((p) => p.id === msg.playerId);
+    if (!rosterPlayer) {
+      ws.send(JSON.stringify({ type: 'ERROR', message: '2인 플레이어 슬롯이 가득 찼습니다.' }));
+      return;
+    }
+
+    if (!this.rescueGame) this._initRescueGame(rescueRoster);
+
+    const rescuePlayer = this.rescueGame.players.find((p) => p.id === rosterPlayer.id);
+    if (!rescuePlayer) {
+      ws.send(JSON.stringify({ type: 'ERROR', message: '구조대 플레이어 정보를 찾을 수 없습니다.' }));
+      return;
+    }
+
+    rescuePlayer.connected = true;
+    ws.serializeAttachment({
+      ...rosterPlayer,
+      role: 'game',
+      gameId: 'mallang-rescue',
+      rescueRole: rescuePlayer.role,
+    });
+
+    ws.send(JSON.stringify({
+      type: 'RESCUE_JOINED',
+      playerId: rosterPlayer.id,
+      role: rescuePlayer.role,
+      tools: this._getRescueToolsForRole(rescuePlayer.role).map((tool) => tool.id),
+    }));
+    this._broadcastRescueState();
+  }
+
+  _getRescueToolsForRole(role) {
+    return Object.values(RESCUE_TOOLS).filter((tool) => tool.ownerRole === role);
+  }
+
+  async _handleRescueReady(player, msg) {
+    if (!this.rescueGame) return;
+    const rescuePlayer = this.rescueGame.players.find((entry) => entry.id === player.id);
+    if (!rescuePlayer) return;
+
+    rescuePlayer.ready = msg.ready !== false;
+    const session = this._getRescueSessions().find((entry) => entry.player.id === player.id);
+    if (session) session.ws.serializeAttachment({ ...session.player, ready: rescuePlayer.ready });
+
+    if (
+      this.rescueGame.phase === 'waiting' &&
+      this.rescueGame.players.length === 2 &&
+      this.rescueGame.players.every((entry) => entry.connected && entry.ready)
+    ) {
+      this._startRescueGame();
+    } else {
+      this._broadcastRescueState();
+    }
+  }
+
+  _startRescueGame() {
+    if (!this.rescueGame) return;
+    const now = Date.now();
+    this.rescueGame.phase = 'playing';
+    this.rescueGame.startedAt = now;
+    this.rescueGame.lastTickAt = now;
+    this.rescueGame.lastSpawnAt = now - 900;
+    this.rescueGame.timeLeftMs = this.rescueGame.durationMs;
+    this.rescueGame.lastEvent = { type: 'ROUND_START', at: now };
+    this._broadcastRescue({ type: 'EVENT', event: 'ROUND_START' });
+    this._broadcastRescueState();
+    this._startRescueLoop();
+  }
+
+  _startRescueLoop() {
+    if (this.rescueLoop) clearInterval(this.rescueLoop);
+    this.rescueLoop = setInterval(() => {
+      this._tickRescueGame().catch(() => {});
+    }, RESCUE_CONFIG.tickMs);
+  }
+
+  _stopRescueLoop() {
+    if (this.rescueLoop) {
+      clearInterval(this.rescueLoop);
+      this.rescueLoop = null;
+    }
+  }
+
+  _handleRescueSelectTool(player, msg) {
+    if (!this.rescueGame) return;
+    const rescuePlayer = this.rescueGame.players.find((entry) => entry.id === player.id);
+    const tool = RESCUE_TOOLS[msg.toolId];
+    if (!rescuePlayer || !tool || tool.ownerRole !== rescuePlayer.role) {
+      this._sendRescueError(player.id, '이 역할이 사용할 수 없는 도구입니다.');
+      return;
+    }
+    rescuePlayer.selectedTool = tool.id;
+    this._broadcastRescueState();
+  }
+
+  _handleRescuePlaceTool(player, msg) {
+    const game = this.rescueGame;
+    const lane = Number(msg.lane);
+    const tool = RESCUE_TOOLS[msg.toolId];
+    const rescuePlayer = game?.players.find((entry) => entry.id === player.id);
+    if (!game || !rescuePlayer || !tool) return;
+    if (game.phase !== 'playing') {
+      this._sendRescueError(player.id, '라운드가 시작된 뒤 설치할 수 있습니다.');
+      return;
+    }
+    if (!Number.isInteger(lane) || lane < 0 || lane >= RESCUE_CONFIG.laneCount) {
+      this._sendRescueError(player.id, '없는 구조 라인입니다.');
+      return;
+    }
+    if (tool.ownerRole !== rescuePlayer.role) {
+      this._sendRescueError(player.id, '내 역할의 도구만 사용할 수 있습니다.');
+      return;
+    }
+
+    const now = Date.now();
+    const readyAt = game.cooldowns[player.id]?.[tool.id] || 0;
+    if (readyAt > now) {
+      this._sendRescueError(player.id, '아직 쿨타임입니다.');
+      return;
+    }
+
+    rescuePlayer.selectedTool = tool.id;
+    game.cooldowns[player.id][tool.id] = now + tool.cooldownMs;
+
+    if (tool.id === 'wind') {
+      this._applyRescueWind(lane);
+      this._broadcastRescue({ type: 'EVENT', event: 'TOOL_PLACED', payload: { toolId: tool.id, lane, playerId: player.id } });
+      this._broadcastRescueState();
+      return;
+    }
+
+    game.tools.push({
+      id: `tool-${game.nextToolId++}`,
+      type: tool.id,
+      lane,
+      ownerPlayerId: player.id,
+      placedAt: now,
+      expiresAt: now + tool.durationMs,
+    });
+    game.lastEvent = { type: 'TOOL_PLACED', toolId: tool.id, lane, playerId: player.id, at: now };
+    this._broadcastRescue({ type: 'EVENT', event: 'TOOL_PLACED', payload: { toolId: tool.id, lane, playerId: player.id } });
+    this._broadcastRescueState();
+  }
+
+  _sendRescueError(playerId, message) {
+    for (const { ws, player } of this._getRescueSessions()) {
+      if (player.id === playerId) ws.send(JSON.stringify({ type: 'ERROR', message }));
+    }
+  }
+
+  _applyRescueWind(lane) {
+    const game = this.rescueGame;
+    if (!game) return;
+    const faller = game.fallers
+      .filter((entry) => entry.lane === lane)
+      .sort((a, b) => b.y - a.y)[0];
+    if (!faller) return;
+
+    const cushionLane = game.tools.find((tool) =>
+      tool.type === 'cushion' &&
+      Math.abs(tool.lane - lane) === 1 &&
+      tool.expiresAt > Date.now()
+    )?.lane;
+    if (Number.isInteger(cushionLane)) {
+      faller.lane = cushionLane;
+    } else if (lane === 0) {
+      faller.lane = 1;
+    } else if (lane === RESCUE_CONFIG.laneCount - 1) {
+      faller.lane = lane - 1;
+    } else {
+      faller.lane = lane + (Math.random() < 0.5 ? -1 : 1);
+    }
+    game.lastEvent = { type: 'WIND_PUSH', fallerId: faller.id, lane: faller.lane, at: Date.now() };
+  }
+
+  async _tickRescueGame() {
+    const game = this.rescueGame;
+    if (!game || game.phase !== 'playing') return;
+
+    const now = Date.now();
+    const dt = Math.max(16, Math.min(250, now - (game.lastTickAt || now)));
+    game.lastTickAt = now;
+    game.timeLeftMs = Math.max(0, game.durationMs - (now - game.startedAt));
+
+    this._spawnRescueFallers(now);
+    this._updateRescueFallers(now, dt);
+    game.tools = game.tools.filter((tool) => tool.expiresAt > now);
+
+    if (game.timeLeftMs <= 0) {
+      await this._finishRescueGame();
+      return;
+    }
+
+    this._broadcastRescueState();
+  }
+
+  _spawnRescueFallers(now) {
+    const game = this.rescueGame;
+    if (!game || game.fallers.length >= RESCUE_CONFIG.maxFallers) return;
+    const elapsed = now - game.startedAt;
+    const spawnEvery = elapsed < 20000 ? 1800 : elapsed < 50000 ? 1300 : 900;
+    if (now - game.lastSpawnAt < spawnEvery) return;
+
+    const count = elapsed > 50000 && Math.random() < 0.32 ? 2 : 1;
+    for (let i = 0; i < count && game.fallers.length < RESCUE_CONFIG.maxFallers; i += 1) {
+      const type = this._pickRescueFallerType(elapsed);
+      game.fallers.push({
+        id: `faller-${game.nextFallerId++}`,
+        type: type.id,
+        name: type.name,
+        icon: type.icon,
+        lane: Math.floor(Math.random() * RESCUE_CONFIG.laneCount),
+        y: -8 - i * 12,
+        speed: type.speed * (elapsed > 50000 ? 1.14 : elapsed > 20000 ? 1.06 : 1),
+        baseSpeed: type.speed,
+        baseScore: type.baseScore,
+        weight: type.weight,
+        slowedByBalloon: false,
+        spawnedAt: now,
+      });
+    }
+    game.lastSpawnAt = now;
+  }
+
+  _pickRescueFallerType(elapsed) {
+    const roll = Math.random();
+    if (elapsed < 20000) {
+      return roll < 0.54 ? RESCUE_FALLERS[0] : roll < 0.88 ? RESCUE_FALLERS[1] : RESCUE_FALLERS[2];
+    }
+    if (elapsed < 50000) {
+      return roll < 0.34 ? RESCUE_FALLERS[0] : roll < 0.76 ? RESCUE_FALLERS[1] : RESCUE_FALLERS[2];
+    }
+    return roll < 0.24 ? RESCUE_FALLERS[0] : roll < 0.62 ? RESCUE_FALLERS[1] : RESCUE_FALLERS[2];
+  }
+
+  _updateRescueFallers(now, dt) {
+    const game = this.rescueGame;
+    if (!game) return;
+    const remaining = [];
+
+    for (const faller of game.fallers) {
+      faller.y += faller.speed * dt;
+
+      if (!faller.slowedByBalloon && faller.y >= RESCUE_CONFIG.balloonLineY) {
+        const balloon = this._consumeRescueTool('balloon', faller.lane);
+        if (balloon) {
+          faller.slowedByBalloon = true;
+          faller.speed *= faller.weight === 'heavy' ? 0.42 : 0.5;
+          if (faller.type === 'chick') {
+            this._resolveRescueFaller(faller, { toolMultiplier: 1, rescuedBy: ['balloon'], coop: false });
+            continue;
+          }
+        }
+      }
+
+      if (faller.y >= RESCUE_CONFIG.rescueLineY) {
+        const cushion = this._consumeRescueTool('cushion', faller.lane);
+        if (cushion) {
+          const coop = Boolean(faller.slowedByBalloon);
+          const heavySoloPenalty = faller.type === 'hamster' && !coop ? 0.8 : 1;
+          this._resolveRescueFaller(faller, {
+            toolMultiplier: coop ? 1.5 : heavySoloPenalty,
+            rescuedBy: coop ? ['balloon', 'cushion'] : ['cushion'],
+            coop,
+          });
+          continue;
+        }
+
+        const spring = this._consumeRescueTool('spring', faller.lane);
+        if (spring) {
+          this._resolveRescueFaller(faller, { toolMultiplier: 0.7, rescuedBy: ['spring'], coop: false, keepCombo: true });
+          continue;
+        }
+
+        this._missRescueFaller(faller);
+        continue;
+      }
+
+      remaining.push(faller);
+    }
+
+    game.fallers = remaining;
+  }
+
+  _consumeRescueTool(type, lane) {
+    const game = this.rescueGame;
+    if (!game) return null;
+    const now = Date.now();
+    const index = game.tools.findIndex((tool) => tool.type === type && tool.lane === lane && tool.expiresAt > now);
+    if (index === -1) return null;
+    const [tool] = game.tools.splice(index, 1);
+    return tool;
+  }
+
+  _comboMultiplier(combo) {
+    if (combo >= 10) return 2.0;
+    if (combo >= 6) return 1.5;
+    if (combo >= 3) return 1.2;
+    return 1.0;
+  }
+
+  _resolveRescueFaller(faller, { toolMultiplier, rescuedBy, coop, keepCombo = false }) {
+    const game = this.rescueGame;
+    if (!game) return;
+    if (!keepCombo) game.combo += 1;
+    game.maxCombo = Math.max(game.maxCombo, game.combo);
+    const scoreGain = Math.round(faller.baseScore * toolMultiplier * this._comboMultiplier(game.combo));
+    game.score += scoreGain;
+    game.rescuedCount += 1;
+    if (coop) game.coopCount += 1;
+    game.lastEvent = {
+      type: coop ? 'COOP_RESCUE' : 'RESCUE_SUCCESS',
+      fallerId: faller.id,
+      fallerType: faller.type,
+      lane: faller.lane,
+      scoreGain,
+      rescuedBy,
+      combo: game.combo,
+      at: Date.now(),
+    };
+    this._broadcastRescue({ type: 'EVENT', event: game.lastEvent.type, payload: game.lastEvent });
+  }
+
+  _missRescueFaller(faller) {
+    const game = this.rescueGame;
+    if (!game) return;
+    game.combo = 0;
+    game.missedCount += 1;
+    game.lastEvent = {
+      type: 'MISS',
+      fallerId: faller.id,
+      fallerType: faller.type,
+      lane: faller.lane,
+      at: Date.now(),
+    };
+    this._broadcastRescue({ type: 'EVENT', event: 'MISS', payload: game.lastEvent });
+  }
+
+  async _finishRescueGame() {
+    const game = this.rescueGame;
+    if (!game) return;
+    game.phase = 'finished';
+    game.timeLeftMs = 0;
+    this._stopRescueLoop();
+
+    const scores = {};
+    for (const player of game.players) {
+      scores[player.id] = {
+        id: player.id,
+        name: player.name,
+        color: player.color,
+        colorIndex: player.colorIndex,
+        score: game.score,
+      };
+    }
+    await this.state.storage.put('scores', scores);
+    await this.state.storage.put('phase', 'results');
+    this._broadcastRescue({ type: 'EVENT', event: 'ROUND_FINISHED' });
+    this._broadcastRescueState();
   }
 }

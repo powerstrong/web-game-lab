@@ -1,4 +1,4 @@
-const CACHE = 'tenten-v3';
+const CACHE = 'tenten-v4';
 
 const PRECACHE = [
   '/',
@@ -12,6 +12,9 @@ const PRECACHE = [
   '/lobby/room.css',
   '/lobby/room.js',
   '/lobby/config.js',
+  '/prototypes/mallang-rescue/index.html',
+  '/prototypes/mallang-rescue/style.css',
+  '/prototypes/mallang-rescue/game.js',
 ];
 
 self.addEventListener('install', e => {

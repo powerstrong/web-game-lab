@@ -648,14 +648,19 @@ button {
 .avatar__label {
   position: absolute;
   left: 50%;
-  top: 0;
-  padding: 4px 8px;
+  top: -10px;
+  max-width: 110px;
+  padding: 4px 10px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.94);
   color: var(--feature);
   font-size: 0.72rem;
   font-weight: 800;
-  transform: translateX(-50%);
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translate(-50%, -100%);
   z-index: 6;
 }
 
