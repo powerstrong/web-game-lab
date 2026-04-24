@@ -1,0 +1,200 @@
+/* ===== 말랑프렌즈 팩토리 — 스타일 ===== */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  background: #e8f4ff;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.game-shell {
+  position: relative;
+  width: 800px;
+  min-height: 500px;
+}
+
+/* ── 화면 전환 ── */
+.screen { display: none; }
+.screen.is-active { display: flex; flex-direction: column; align-items: center; }
+
+/* ── 설정 화면 ── */
+.screen--setup {
+  gap: 16px;
+  padding: 24px;
+  background: linear-gradient(160deg, #d4f0ff 0%, #ffe8f5 100%);
+  border-radius: 24px;
+  box-shadow: 0 8px 32px rgba(100, 160, 220, 0.25);
+}
+
+.setup-banner { width: 100%; max-width: 480px; }
+.setup-banner__img { width: 100%; height: auto; border-radius: 12px; }
+
+.setup-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+
+.setup-title {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #4a6fa5;
+  text-shadow: 0 2px 8px rgba(74, 111, 165, 0.2);
+}
+
+.setup-subtitle {
+  font-size: 1rem;
+  color: #7a90b0;
+}
+
+.setup-controls {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+  justify-content: center;
+}
+
+.control-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px 20px;
+  box-shadow: 0 4px 16px rgba(100, 160, 220, 0.15);
+  flex: 1;
+  max-width: 280px;
+}
+
+.control-card--p1 { border-top: 4px solid #ff7eb9; }
+.control-card--p2 { border-top: 4px solid #7ec8ff; }
+
+.control-card__char { font-size: 2.5rem; }
+
+.control-card__info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: #556;
+}
+.control-card__info strong {
+  font-size: 1rem;
+  color: #334;
+  margin-bottom: 2px;
+}
+
+.setup-goal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff9c4;
+  border-radius: 12px;
+  padding: 10px 20px;
+  font-size: 0.95rem;
+  color: #665500;
+  border: 2px solid #ffd740;
+}
+.setup-goal__icon { font-size: 1.2rem; }
+
+/* ── 버튼 ── */
+.btn-start {
+  background: linear-gradient(135deg, #ff7eb9, #ff5fa0);
+  color: #fff;
+  border: none;
+  border-radius: 50px;
+  padding: 14px 48px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(255, 126, 185, 0.4);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.btn-start:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255, 126, 185, 0.5); }
+.btn-start:active { transform: translateY(0); }
+
+.btn-start--secondary {
+  background: linear-gradient(135deg, #7ecfff, #5ab8ff);
+  box-shadow: 0 4px 16px rgba(126, 207, 255, 0.4);
+}
+.btn-start--secondary:hover { box-shadow: 0 6px 20px rgba(126, 207, 255, 0.5); }
+
+/* ── 게임 HUD ── */
+.screen--game { width: 800px; }
+
+.game-hud {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 800px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 16px 16px 0 0;
+  padding: 10px 24px;
+  box-shadow: 0 2px 8px rgba(100, 160, 220, 0.15);
+  backdrop-filter: blur(8px);
+}
+
+.hud-left, .hud-center, .hud-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hud-label { font-size: 0.8rem; color: #888; }
+.hud-value { font-size: 1.2rem; font-weight: 700; color: #334; }
+.hud-timer { color: #4a6fa5; font-variant-numeric: tabular-nums; }
+.hud-coins { color: #e6a817; }
+.hud-separator, .hud-target { color: #aaa; font-size: 1rem; }
+
+#gameCanvas {
+  display: block;
+  border-radius: 0 0 16px 16px;
+  box-shadow: 0 8px 24px rgba(100, 160, 220, 0.2);
+}
+
+/* ── 결과 화면 ── */
+.screen--result {
+  justify-content: center;
+  min-height: 560px;
+  background: linear-gradient(160deg, #d4f0ff 0%, #ffe8f5 100%);
+  border-radius: 24px;
+  padding: 32px;
+}
+
+.result-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 480px;
+}
+
+.result-badge { font-size: 4rem; line-height: 1; }
+.result-title { font-size: 2rem; font-weight: 800; color: #4a6fa5; }
+
+.result-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+}
+
+.result-stat {
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 2px 8px rgba(100, 160, 220, 0.1);
+}
+.result-stat__label { font-size: 0.8rem; color: #888; }
+.result-stat__value { font-size: 1.4rem; font-weight: 700; color: #334; }
