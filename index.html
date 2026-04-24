@@ -22,95 +22,15 @@
           <img src="/assets/main banner.png" alt="말랑프렌즈 아케이드" class="hero-banner" />
         </div>
         <div class="hero-actions">
-          <a class="cta-button" href="./lobby/index.html">로비 만들기</a>
-          <button class="install-btn" id="install-btn" hidden>앱으로 설치</button>
-          <p class="hero-note">말랑프렌즈 아케이드 · 방 코드로 입장 · 바로 플레이</p>
+          <a class="cta-button" href="./lobby/index.html">로비 입장하기</a>
         </div>
-      </section>
-
-      <section class="games-section" aria-label="게임 목록">
-        <div class="hub-grid" id="hub-grid"></div>
       </section>
     </main>
 
-    <script src="./games/registry.js"></script>
     <script>
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js').catch(() => {});
       }
-
-      let _installPrompt = null;
-      window.addEventListener('beforeinstallprompt', e => {
-        e.preventDefault();
-        _installPrompt = e;
-        const btn = document.getElementById('install-btn');
-        if (btn) btn.hidden = false;
-      });
-      window.addEventListener('appinstalled', () => {
-        const btn = document.getElementById('install-btn');
-        if (btn) btn.hidden = true;
-        _installPrompt = null;
-      });
-      document.addEventListener('DOMContentLoaded', () => {
-        const btn = document.getElementById('install-btn');
-        if (!btn) return;
-        btn.addEventListener('click', async () => {
-          if (!_installPrompt) return;
-          _installPrompt.prompt();
-          await _installPrompt.userChoice;
-          _installPrompt = null;
-          btn.hidden = true;
-        });
-      });
-    </script>
-    <script>
-      (function () {
-        const TYPE_LABELS = { SOLO: '솔로', DUEL_LIVE: '실시간 대전', PARTY_ASYNC: '파티' };
-        const TYPE_CLASSES = { SOLO: 'solo', DUEL_LIVE: 'duel', PARTY_ASYNC: 'party' };
-        const STATUS_LABELS = { PLAYABLE: '플레이 가능', ALPHA: '알파', COMING_SOON: '준비 중' };
-
-        function getHref(game) {
-          if (game.type === 'SOLO') return game.path;
-          return '/lobby/index.html';
-        }
-
-        function formatDuration(s) {
-          return s > 0 ? s + '초' : '무제한';
-        }
-
-        const grid = document.getElementById('hub-grid');
-        (window.GAME_REGISTRY || []).forEach(function (game) {
-          const a = document.createElement('a');
-          a.className = 'hub-card';
-          a.href = getHref(game);
-
-          const typeClass = TYPE_CLASSES[game.type] || 'solo';
-          const typeLabel = TYPE_LABELS[game.type] || game.type;
-          const statusLabel = STATUS_LABELS[game.status] || game.status;
-
-          a.innerHTML =
-            '<div class="hub-card-accent" style="background:' + game.accentColor + '"></div>' +
-            '<div class="hub-card-body">' +
-              '<div class="hub-card-top">' +
-                '<span class="hub-card-icon" style="background:' + game.accentColor + '">' + game.icon + '</span>' +
-                '<div class="hub-card-badges">' +
-                  '<span class="badge badge-' + typeClass + '">' + typeLabel + '</span>' +
-                  '<span class="badge badge-status">' + statusLabel + '</span>' +
-                '</div>' +
-              '</div>' +
-              '<h3 class="hub-card-title">' + game.title + '</h3>' +
-              '<p class="hub-card-desc">' + game.description + '</p>' +
-              '<ul class="hub-card-meta">' +
-                '<li><span class="meta-label">권장</span>' + game.recommendedPlayers + '</li>' +
-                '<li><span class="meta-label">지원</span>' + game.supportedPlayers + '</li>' +
-                '<li><span class="meta-label">방식</span>' + game.playMode + '</li>' +
-                '<li><span class="meta-label">시간</span>' + formatDuration(game.durationSeconds) + '</li>' +
-              '</ul>' +
-            '</div>';
-
-          grid.appendChild(a);
-        });
-      })();
     </script>
   </body>
 </html>

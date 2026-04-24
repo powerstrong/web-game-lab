@@ -5,8 +5,6 @@ const COLORS = [
 
 // Keep in sync with /games/registry.js (browser can't import that file here)
 const GAME_PATHS = {
-  'dodge-square':     '/prototypes/dodge-square/index.html',
-  'rhythm-tap':       '/prototypes/rhythm-tap/index.html',
   'jump-climber':     '/prototypes/jump-climber/index.html',
   'mallang-factory':  '/prototypes/mallang-factory/index.html',
 };
