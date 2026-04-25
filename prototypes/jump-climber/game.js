@@ -32,7 +32,7 @@ const gameBoot = window.GameBoot || null;
 const isRoomSession = Boolean(gameBoot && gameBoot.isMultiplayer);
 
 function assetPath(fileName) {
-  return `/assets/${encodeURIComponent(fileName)}`;
+  return `./assets/${encodeURIComponent(fileName)}`;
 }
 
 const CHARACTER_LIST = [

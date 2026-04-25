@@ -430,7 +430,7 @@ button {
   border-radius: 0;
   background:
     radial-gradient(circle at top, rgba(255, 255, 255, 0.35), transparent 28%),
-    url("/assets/bg_sky_vertical.png") center top / cover no-repeat;
+    url("./assets/bg_sky_vertical.png") center top / cover no-repeat;
   touch-action: none;
   user-select: none;
 }
@@ -476,19 +476,19 @@ button {
 }
 
 .platform--leaf {
-  background-image: url("/assets/platform_leaf.png");
+  background-image: url("./assets/platform_leaf.png");
 }
 
 .platform--cloud {
-  background-image: url("/assets/platform_cloud.png");
+  background-image: url("./assets/platform_cloud.png");
 }
 
 .platform--cake {
-  background-image: url("/assets/platform_cake.png");
+  background-image: url("./assets/platform_cake.png");
 }
 
 .platform--base {
-  background-image: url("/assets/platform_base.png");
+  background-image: url("./assets/platform_base.png");
 }
 
 .platform-deco {
@@ -506,11 +506,11 @@ button {
 }
 
 .platform-deco--spinner {
-  background-image: url("/assets/platform_spinner_center.png");
+  background-image: url("./assets/platform_spinner_center.png");
 }
 
 .platform-deco--orb {
-  background-image: url("/assets/platform_float_orb.png");
+  background-image: url("./assets/platform_float_orb.png");
 }
 
 .boost {
@@ -528,11 +528,11 @@ button {
 }
 
 .boost--rocket {
-  background-image: url("/assets/boost_rocket.png");
+  background-image: url("./assets/boost_rocket.png");
 }
 
 .boost--star {
-  background-image: url("/assets/boost_star.png");
+  background-image: url("./assets/boost_star.png");
 }
 
 .player {
@@ -1093,12 +1093,12 @@ button {
   100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
 }
 
-.effect--jump { background-image: url("/assets/effect_jump.png"); }
-.effect--boost { background-image: url("/assets/effect_boost.png"); }
-.effect--pickup { background-image: url("/assets/effect_pickup.png"); }
+.effect--jump { background-image: url("./assets/effect_jump.png"); }
+.effect--boost { background-image: url("./assets/effect_boost.png"); }
+.effect--pickup { background-image: url("./assets/effect_pickup.png"); }
 
 .effect--burst {
-  background-image: url("/assets/effect_boost_burst.png");
+  background-image: url("./assets/effect_boost_burst.png");
   width: 184px;
   height: 184px;
   animation: effect-burst-pop 620ms ease-out forwards;
@@ -1112,7 +1112,7 @@ button {
 }
 
 .effect--land {
-  background-image: url("/assets/effect_land.png");
+  background-image: url("./assets/effect_land.png");
   width: 148px;
   height: 72px;
   animation: effect-land-pop 520ms ease-out forwards;
@@ -1195,11 +1195,11 @@ button {
 }
 
 .monster--cloud_imp {
-  background-image: url("/assets/monster_cloud_imp.png");
+  background-image: url("./assets/monster_cloud_imp.png");
 }
 
 .monster--fluff_ghost {
-  background-image: url("/assets/monster_fluff_ghost.png");
+  background-image: url("./assets/monster_fluff_ghost.png");
 }
 
 @keyframes monster-float {
@@ -1366,7 +1366,7 @@ button {
   position: absolute;
   width: 720px;
   height: 720px;
-  background: url("/assets/effect_boost_burst.png") center / contain no-repeat;
+  background: url("./assets/effect_boost_burst.png") center / contain no-repeat;
   filter: drop-shadow(0 0 36px rgba(255, 200, 120, 0.6));
   animation: intro-burst-spin 2.8s linear infinite, intro-burst-fade 2250ms ease-out;
   pointer-events: none;

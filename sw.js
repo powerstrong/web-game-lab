@@ -12,9 +12,6 @@ const PRECACHE = [
   '/lobby/room.css',
   '/lobby/room.js',
   '/lobby/config.js',
-  '/prototypes/mallang-rescue/index.html',
-  '/prototypes/mallang-rescue/style.css',
-  '/prototypes/mallang-rescue/game.js',
 ];
 
 self.addEventListener('install', e => {

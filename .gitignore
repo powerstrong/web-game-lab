@@ -1,5 +1,7 @@
 .omc/
 .omx/
+.claude/
+.codex-*
 node_modules/
 **/node_modules/
 
