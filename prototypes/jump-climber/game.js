@@ -2168,7 +2168,7 @@ function configureSessionMode() {
 
   state.playerCount = 1;
   setupHintEl.innerHTML =
-    "방에서는 같은 맵에서 동시에 점프! 화면 좌우 터치로 움직여요. <strong>🎲 랜덤</strong>은 숨겨진 친구도 추첨!";
+    "같은 맵에서 동시에 점프! 화면 좌우 터치로 움직여요. <strong>🎲 랜덤</strong>은 숨겨진 친구도 추첨!";
 
   startButton.textContent = "방 합류";
   restartButton.hidden = true;

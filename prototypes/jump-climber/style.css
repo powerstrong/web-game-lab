@@ -1117,15 +1117,18 @@ button {
 }
 
 .main-banner {
-  border-radius: 24px;
+  border-radius: 28px;
   overflow: hidden;
-  margin-bottom: 14px;
-  box-shadow: 0 12px 32px rgba(167, 100, 120, 0.18);
+  /* 좌우로 살짝 비져나오게 + 위아래 여백 늘려 시각적으로 더 큰 배너로 보이게 */
+  margin: 4px calc(var(--page-gutter) * -1) 22px;
+  box-shadow: 0 18px 38px rgba(167, 100, 120, 0.24);
 }
 .main-banner__img {
   width: 100%;
   height: auto;
   display: block;
+  transform: scale(1.04);
+  transform-origin: center;
 }
 .setup-title-img {
   text-align: center;
