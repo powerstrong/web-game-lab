@@ -378,7 +378,7 @@ function createAvatarMarkup(setup, label, compact = false, pose = "preview") {
     // PNG가 있으면 일반 avatar처럼, 없으면 dashed/gradient placeholder
     if (!randomMainImageAvailable) classes.push("avatar--random");
     const inner = randomMainImageAvailable
-      ? `<img class="avatar__sprite" src="${RANDOM_CHARACTER_OPTION.mainImage}" alt="랜덤" draggable="false" />`
+      ? `<img class="avatar__sprite" src="${RANDOM_CHARACTER_OPTION.mainImage}" alt="랜덤" draggable="false" decoding="async" />`
       : `<div class="avatar__random-mark" aria-hidden="true">🎲</div>`;
     return `
       <div class="${classes.join(" ")} is-rising">
@@ -396,7 +396,7 @@ function createAvatarMarkup(setup, label, compact = false, pose = "preview") {
     <div class="${classes.join(" ")} is-rising">
       ${label ? `<span class="avatar__label">${escapeHtml(label)}</span>` : ""}
       <div class="avatar__character">
-        <img class="avatar__sprite" src="${getSpriteSrc(character, pose)}" alt="${character.name}" draggable="false" />
+        <img class="avatar__sprite" src="${getSpriteSrc(character, pose)}" alt="${character.name}" draggable="false" decoding="async" />
       </div>
     </div>
   `;

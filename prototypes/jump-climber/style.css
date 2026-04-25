@@ -433,6 +433,15 @@ button {
 .boost,
 .player {
   position: absolute;
+  /* 매 프레임 transform만 변하므로 컴포지터 레이어로 승격 → 페인트 절약 */
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.monster {
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 .platform {
@@ -700,6 +709,27 @@ button {
 }
 
 @media (max-width: 760px) {
+  /* 모바일 전용 페인트 비용 절감: drop-shadow 약화, backdrop-filter 약화 */
+  .panel {
+    backdrop-filter: blur(8px);
+  }
+  .monster {
+    filter: drop-shadow(0 6px 12px rgba(120, 90, 140, 0.28));
+  }
+  .boost {
+    filter: drop-shadow(0 0 4px rgba(255, 160, 60, 0.32));
+    box-shadow: none;
+  }
+  .avatar__sprite {
+    filter: none;
+  }
+  .results-overlay {
+    backdrop-filter: blur(4px);
+  }
+  .character-intro {
+    backdrop-filter: blur(6px);
+  }
+
   .game-shell {
     width: 100%;
     padding: 0;

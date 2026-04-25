@@ -1082,12 +1082,31 @@ export class GameRoom {
 
   async _handleJoin(ws, msg) {
     const name = (msg.name || '플레이어').slice(0, 32);
+    const requestedId = typeof msg.playerId === 'string' && msg.playerId ? msg.playerId : null;
 
-    let colorIndex = (await this.state.storage.get('colorIndex')) || 0;
-    const color = COLORS[colorIndex % COLORS.length];
-    await this.state.storage.put('colorIndex', colorIndex + 1);
+    // 동일 playerId의 lobby 세션이 살아있으면 (페이지 nav 후 옛 ws가 아직 정리 안 된 상태),
+    // 옛 ws는 닫고 그 세션의 식별 정보(id/color/votes)를 새 ws로 인계 → 자기 자신 복제 방지.
+    let inherited = null;
+    if (requestedId) {
+      for (const session of this._getLobbySessions()) {
+        if (session.player.id === requestedId && session.ws !== ws) {
+          inherited = session.player;
+          try { session.ws.close(4001, 'replaced'); } catch { /* ignore */ }
+          session.ws.serializeAttachment(null);
+          break;
+        }
+      }
+    }
 
-    const playerData = { id: randomHex(6), name, color, colorIndex, gameVote: null, startVote: false, role: 'lobby' };
+    let playerData;
+    if (inherited) {
+      playerData = { ...inherited, name, role: 'lobby' };
+    } else {
+      let colorIndex = (await this.state.storage.get('colorIndex')) || 0;
+      const color = COLORS[colorIndex % COLORS.length];
+      await this.state.storage.put('colorIndex', colorIndex + 1);
+      playerData = { id: randomHex(6), name, color, colorIndex, gameVote: null, startVote: false, role: 'lobby' };
+    }
     ws.serializeAttachment(playerData);
 
     const sessions  = this._getLobbySessions();

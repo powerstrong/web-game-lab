@@ -155,7 +155,15 @@ function connect(code, name) {
 function onOpen() {
   reconnectAttempts = 0;
   setConnStatus('connected', '연결됨');
-  send({ type: 'join', name: playerName });
+
+  // 같은 탭 내에서 게임→로비 nav 후 다시 연결될 때 기존 playerId를 복원해
+  // 서버 쪽에서 잔존한 옛 ws를 정리하고 동일 식별자를 인계하도록 한다.
+  let savedPlayerId = null;
+  try {
+    savedPlayerId = sessionStorage.getItem(`lobbyPid-${roomCode}`) || null;
+  } catch { /* storage unavailable */ }
+
+  send({ type: 'join', name: playerName, playerId: savedPlayerId });
 
   // If returning from a game with a pending result, submit it now
   let submittedLastResult = false;
@@ -240,6 +248,10 @@ function handleMessage(msg) {
   switch (msg.type) {
     case 'welcome':
       myId = msg.playerId;
+      // 페이지 nav 이후에도 동일 식별자로 재합류할 수 있도록 저장 (탭 단위)
+      if (myId) {
+        try { sessionStorage.setItem(`lobbyPid-${roomCode}`, myId); } catch { /* ignore */ }
+      }
       currentGame = msg.currentGame || currentGame;
       renderPlayers(msg.players || [], msg.gameVotes || {});
       renderGameVotes(msg.gameVotes || {});
