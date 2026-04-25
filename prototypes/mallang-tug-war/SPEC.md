@@ -1,4 +1,4 @@
-# 말랑프렌즈 줄다리기 — MVP 스펙 (v0.3)
+# 말랑프렌즈 줄다리기 — MVP 스펙 (v0.4)
 
 > 온라인 1v1, 30초 동안 양쪽 플레이어가 거대한 마시멜로 줄을 당긴다.
 > 단순 연타가 아니라 **리듬 타이밍**이 핵심. 줄 위에서 떨어지는 아이템과
@@ -611,6 +611,61 @@ type RopeState = 'balanced' | 'pushed' | 'struggling' | 'danger' | 'critical';
 
 ---
 
+## 구현 진행 상황
+
+본 SPEC을 단계별로 분할 의뢰하여 구현 중. 각 Phase의 산출물·커밋·다음 단계 추적.
+
+### Phase 0 — 코드베이스 정리 ✅ 완료
+**커밋**: `6d91c79` Trim prototypes to jump-climber only and isolate its assets
+
+- 미사용 프로토타입 7개 폴더 삭제 (_template, dodge-square, mallang-factory, mallang-rescue, mallang-snow-battle, mallang-tap, rhythm-tap)
+- jump-climber 자산 49개를 root `/assets/`에서 `prototypes/jump-climber/assets/`로 이동 (게임별 폴더 정책)
+- `worker/src/room.js`에서 Factory/Rescue/Tap 게임 코드 제거 (-1033줄, 59 메서드)
+- 자산 참조 갱신 27곳 (game.js, index.html, style.css, root index.html, manifest, README)
+- `.gitignore`에 `.claude/`, `.codex-*` 등록
+
+### Phase A — mallang-tug-war 스캐폴딩 ✅ 완료
+**상태**: 커밋 직전. 검증 가능 산출물은 "로비에서 카드 보임 → 클릭 시 게임 페이지 진입 → Ready 버튼이 TUG_READY 메시지 송신"까지.
+
+**생성된 파일**:
+- `prototypes/mallang-tug-war/index.html` (76줄) — 3-스크린 구조(setup/play/result), 캐릭터 선택 카드 3종, Ready 버튼
+- `prototypes/mallang-tug-war/game.js` (128줄) — WebSocket 연결, TUG_JOINED/error 메시지 핸들러, 화면 전환, 캐릭터 선택 UI 핸들러, Ready 버튼 핸들러
+- `prototypes/mallang-tug-war/style.css` (281줄) — `--phone-shell: 430px` 모바일 portrait-first 골격, tug 전용 클래스 stub (.tug-rope, .tug-character, .rhythm-ring-container, .judgement-popup)
+
+**수정된 파일**:
+- `games/registry.js` — 줄다리기 카드 등록 (icon `🪢`, accentColor `#ff9f50`, durationSeconds 30)
+- `worker/src/room.js` — `GAME_PATHS` 추가, `_handleJoinGame` 분기, stub 메서드 5개 (`_handleTugWarJoinGame`, `_handleTugWarReady`, `_handleTugWarSelectCharacter`, `_handleTugWarTap`, `_handleTugWarItemGrab`), 메시지 case 4개, disconnect 분기, 생성자 필드 2개
+
+**서버 stub 동작**:
+- `_handleTugWarJoinGame`은 SPEC v0.3대로 1v1 결정 (roster 첫 2명이 player), 그 외는 spectator
+- side는 `playerRoster[0].id === msg.playerId ? 'left' : 'right'`로 결정
+- `TUG_JOINED { role, side }` 송신
+- 게임 상태 초기화/STATE_SYNC 브로드캐스트는 Phase B에서 추가
+
+### Phase A 검토 후 직접 패치
+Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
+- **`game.js:87`** — `showPlayScreen()`이 `playScreen` DOM을 textContent로 덮어쓰는 코드 제거. 이대로 두면 Phase B에서 게임 화면 구성 시 arena/rope/character div가 다 지워짐. placeholder 텍스트는 이미 `index.html`의 `.rhythm-ring-container`에 있음.
+
+### Phase A에서 미해결로 남긴 minor 이슈 (Phase C 시 같이 처리)
+- **`game.js:51` `send()` 함수** — 현재 모든 메시지에 자동으로 `clientSeq: ++clientSeq` 부여. SPEC상 `clientSeq`는 `TUG_TAP`/`TUG_ITEM_GRAB`에만 있어야 함. Phase C에서 리듬 탭 처리 들어갈 때 같이 정리.
+
+### Phase B — 캐릭터 선택 동기화 + Ready/카운트다운 (예정)
+범위:
+- 클라 캐릭터 선택 시 서버에 `TUG_SELECT_CHARACTER` 송신
+- 서버에서 게임 상태(`tugWarGame`) 초기화 및 캐릭터 ID 검증 + 양쪽 브로드캐스트
+- `TUG_READY` 처리 — 양쪽 ready 시 3-2-1 카운트다운 + 상태 phase `'countdown' → 'playing'` 전환
+- `TUG_STATE_SYNC` 브로드캐스트 (서버 권위 상태 + 30초 타이머)
+- jump-climber 자산을 캐릭터 카드에 연결 (현재는 텍스트만)
+- disconnect 처리 (게임 중이면 abandoned로 종료)
+
+### Phase C — 리듬 링 + TAP 판정 + ropePos (예정)
+
+### Phase D — 줄 시각화(tension/wobble/stretch) + 5단계 상태 모션 + 페이즈 2 연출 (예정)
+
+### Phase E — 아이템 2종 + KO 시퀀스 + 결과 화면 명장면 회상 + 사운드 8종 (예정)
+
+---
+
 ## 절대 하지 말 것 (MVP 범위 외)
 
 - 2v2 / 4인 모드
@@ -675,6 +730,14 @@ type RopeState = 'balanced' | 'pushed' | 'struggling' | 'danger' | 'critical';
 ---
 
 ## 변경 이력
+
+### v0.4 (Phase 0 정리 + Phase A 스캐폴딩 완료)
+
+**구현 진행 상황 섹션 신설**: Phase별 산출물·커밋·이슈를 SPEC 안에서 추적. 향후 Phase B/C/D/E도 같은 형식으로 누적.
+
+**Phase 0**: 코드베이스 정리(미사용 프로토타입 7개 폴더 삭제, jump-climber 자산을 자체 폴더로 이동, worker/src/room.js 정리). 커밋 `6d91c79`.
+
+**Phase A**: mallang-tug-war 스캐폴딩(3개 신규 파일, registry/worker stub 등록, TUG_READY 송신까지 동작). 검토 중 critical 이슈 1건(`showPlayScreen` DOM 덮어쓰기) 직접 패치. minor 이슈 1건(`send()` 자동 clientSeq) Phase C에서 처리하기로 메모.
 
 ### v0.3 (구현 직전 정합성 패치)
 

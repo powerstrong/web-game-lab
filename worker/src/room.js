@@ -6,6 +6,7 @@ const COLORS = [
 // Keep in sync with /games/registry.js (browser can't import that file here)
 const GAME_PATHS = {
   'jump-climber': '/prototypes/jump-climber/index.html',
+  'mallang-tug-war': '/prototypes/mallang-tug-war/index.html',
 };
 
 function randomHex(len) {
@@ -171,6 +172,8 @@ export class GameRoom {
     this.env = env;
     this.jumpGame = null;
     this.jumpLoop = null;
+    this.tugWarGame = null;
+    this.tugWarLoop = null;
   }
 
   // Returns [{ws, player}] for all connected, registered players
@@ -837,6 +840,10 @@ export class GameRoom {
   }
 
   async _handleJoinGame(ws, msg) {
+    if (msg.gameId === 'mallang-tug-war') {
+      return await this._handleTugWarJoinGame(ws, msg);
+    }
+
     const currentGame = (await this.state.storage.get('currentGame')) || null;
     const phase = (await this.state.storage.get('phase')) || 'lobby';
     const fullRoster = (await this.state.storage.get('gameRoster')) || [];
@@ -907,6 +914,52 @@ export class GameRoom {
     this._broadcastJumpPatch();
   }
 
+  async _handleTugWarJoinGame(ws, msg) {
+    const fullRoster = (await this.state.storage.get('gameRoster')) || [];
+    const playerRoster = fullRoster.slice(0, 2); // 1v1, first 2 roster entries are players
+    const rosterPlayer = fullRoster.find((p) => p.id === msg.playerId) || null;
+
+    if (!rosterPlayer) {
+      ws.send(JSON.stringify({ type: 'error', message: '방 플레이어 정보가 맞지 않습니다.' }));
+      return;
+    }
+
+    const isPlayer = playerRoster.some((p) => p.id === msg.playerId);
+    const role = isPlayer ? 'player' : 'spectator';
+    const side = isPlayer
+      ? (playerRoster[0].id === msg.playerId ? 'left' : 'right')
+      : undefined;
+
+    ws.serializeAttachment({
+      ...rosterPlayer,
+      role: 'game',
+      gameId: 'mallang-tug-war',
+      isSpectator: !isPlayer,
+    });
+
+    ws.send(JSON.stringify({ type: 'TUG_JOINED', role, side }));
+
+    // TODO: Phase B에서 게임 상태 초기화 + STATE_SYNC 브로드캐스트
+  }
+
+  async _handleTugWarReady(player, msg) {
+    // TODO: Phase B에서 ready 상태 추적 + 양쪽 ready 시 카운트다운 시작
+    console.log('[tug-war] TUG_READY received from', player.id, msg.ready);
+  }
+
+  async _handleTugWarSelectCharacter(player, msg) {
+    // TODO: Phase B에서 캐릭터 ID 검증 + 상태 저장 + 브로드캐스트
+    console.log('[tug-war] TUG_SELECT_CHARACTER', player.id, msg.characterId);
+  }
+
+  _handleTugWarTap(player, msg) {
+    // TODO: Phase C에서 리듬 판정 + ropePos 업데이트
+  }
+
+  _handleTugWarItemGrab(player, msg) {
+    // TODO: Phase E에서 아이템 효과 적용
+  }
+
   _handlePlayerInput(player, msg) {
     if (!this.jumpGame || player.role !== 'game' || player.gameId !== 'jump-climber') return;
     if (player.isSpectator) return;
@@ -952,6 +1005,18 @@ export class GameRoom {
       case 'vote_game':     if (player) await this._handleVoteGame(ws, player, msg);      break;
       case 'vote_start':    if (player) await this._handleVoteStart(ws, player, msg);     break;
       case 'player_input':  if (player) this._handlePlayerInput(player, msg);             break;
+      case 'TUG_READY':
+        if (player?.gameId === 'mallang-tug-war') await this._handleTugWarReady(player, msg);
+        break;
+      case 'TUG_SELECT_CHARACTER':
+        if (player?.gameId === 'mallang-tug-war') await this._handleTugWarSelectCharacter(player, msg);
+        break;
+      case 'TUG_TAP':
+        if (player?.gameId === 'mallang-tug-war') this._handleTugWarTap(player, msg);
+        break;
+      case 'TUG_ITEM_GRAB':
+        if (player?.gameId === 'mallang-tug-war') this._handleTugWarItemGrab(player, msg);
+        break;
       case 'submit_result': if (player) await this._handleSubmitResult(player, msg);      break;
       case 'rematch':       if (player) await this._handleRematch();                       break;
       case 'ping':
@@ -1156,6 +1221,10 @@ export class GameRoom {
         this._broadcastJumpPatch();
       }
       return;
+    }
+
+    if (player.role === 'game' && player.gameId === 'mallang-tug-war' && this.tugWarGame) {
+      // TODO: Phase B에서 disconnect 정리 (게임 중이면 abandoned로 종료)
     }
 
     const sessions = this._getLobbySessions(); // excludes the null'd player
