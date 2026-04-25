@@ -50,6 +50,9 @@ const JUMP_GAME_SETTINGS = {
   monsterSpawnIntervalMaxMs: 9500,
   monsterFirstSpawnDelayMs: 3000,
   monsterBobAmplitude: 14,
+  monsterTurnIntervalMinMs: 1400,
+  monsterTurnIntervalMaxMs: 2800,
+  monsterLifetimeMs: 9000,
 };
 
 const PLATFORM_KINDS = ['leaf', 'cloud', 'cake'];
@@ -681,25 +684,39 @@ export class GameRoom {
     }
   }
 
-  // ── 몬스터: 화면 한쪽 가장자리 바깥에서 등장 → 천천히 가로지름 → 반대편으로 사라짐 ──
+  // ── 몬스터: 가장자리 바깥에서 등장 → 랜덤 방향으로 떠돌이 → 수명 끝나거나 화면 밖으로 사라짐 ──
+  _initialMonsterAngle(direction) {
+    // direction=1 (왼→오): -π/3 ~ π/3 사이 (오른쪽 반구)
+    // direction=-1 (오→왼): 2π/3 ~ 4π/3 사이 (왼쪽 반구)
+    const span = (Math.PI * 2) / 3;
+    if (direction === 1) {
+      return -span / 2 + Math.random() * span;
+    }
+    return Math.PI - span / 2 + Math.random() * span;
+  }
+
   _spawnEdgeMonster(game) {
     const size = JUMP_GAME_SETTINGS.monsterSize;
     const direction = Math.random() < 0.5 ? -1 : 1;
     const x = direction === 1 ? -size : JUMP_GAME_SETTINGS.worldWidth;
-    // 보이는 윗 영역 (현재 카메라 기준 0.15 ~ 0.55 구간)
     const y = game.cameraY + (0.15 + Math.random() * 0.4) * JUMP_GAME_SETTINGS.arenaHeight;
     const kind = Math.random() < 0.55 ? 'cloud_imp' : 'fluff_ghost';
+    const angle = this._initialMonsterAngle(direction);
+    const speed = JUMP_GAME_SETTINGS.monsterSpeed;
     game.monsters.push({
       id: `monster-${game.nextMonsterId++}`,
       x,
       y,
-      vx: direction * JUMP_GAME_SETTINGS.monsterSpeed,
-      vy: 0,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
       size,
       kind,
-      direction,
       spawnY: y,
       spawnTimeMs: game.elapsedMs,
+      nextTurnAtMs: game.elapsedMs + randomBetween(
+        JUMP_GAME_SETTINGS.monsterTurnIntervalMinMs,
+        JUMP_GAME_SETTINGS.monsterTurnIntervalMaxMs
+      ),
     });
     game.worldDirty = true;
   }
@@ -708,20 +725,33 @@ export class GameRoom {
     if (!this.jumpGame) return;
     const game = this.jumpGame;
     const stepScale = getJumpStepScale(stepMs);
+    const speed = JUMP_GAME_SETTINGS.monsterSpeed;
 
-    // 위치 갱신 + 화면 끝/시야 밖으로 빠져나간 몬스터 정리
     const before = game.monsters.length;
     game.monsters = game.monsters.filter((m) => {
+      // 일정 간격마다 랜덤 방향 재선정 (8방향 비편향 랜덤)
+      if (game.elapsedMs >= m.nextTurnAtMs) {
+        const angle = Math.random() * Math.PI * 2;
+        m.vx = Math.cos(angle) * speed;
+        m.vy = Math.sin(angle) * speed;
+        m.nextTurnAtMs = game.elapsedMs + randomBetween(
+          JUMP_GAME_SETTINGS.monsterTurnIntervalMinMs,
+          JUMP_GAME_SETTINGS.monsterTurnIntervalMaxMs
+        );
+      }
+
       m.x += m.vx * stepScale;
-      m.y = m.spawnY + Math.sin((game.elapsedMs - m.spawnTimeMs) * 0.0012) * JUMP_GAME_SETTINGS.monsterBobAmplitude;
-      const exitedRight = m.direction === 1 && m.x > JUMP_GAME_SETTINGS.worldWidth + 8;
-      const exitedLeft = m.direction === -1 && m.x + m.size < -8;
+      m.y += m.vy * stepScale;
+
+      const margin = JUMP_GAME_SETTINGS.monsterSize * 1.3;
+      const aged = (game.elapsedMs - m.spawnTimeMs) > JUMP_GAME_SETTINGS.monsterLifetimeMs;
+      const offscreen = m.x < -margin || m.x > JUMP_GAME_SETTINGS.worldWidth + margin;
       const fellBehind = m.y > game.cameraY + JUMP_GAME_SETTINGS.arenaHeight + 200;
-      return !(exitedRight || exitedLeft || fellBehind);
+      const tooHigh = m.y < game.cameraY - JUMP_GAME_SETTINGS.arenaHeight;
+      return !(aged || offscreen || fellBehind || tooHigh);
     });
     if (game.monsters.length !== before) game.worldDirty = true;
 
-    // 스폰 타이머
     if (game.elapsedMs >= game.nextMonsterSpawnAtMs) {
       this._spawnEdgeMonster(game);
       game.nextMonsterSpawnAtMs = game.elapsedMs + randomBetween(

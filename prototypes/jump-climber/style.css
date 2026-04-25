@@ -355,47 +355,63 @@ button {
   gap: 5px;
 }
 
-.hud__group {
+.hud__list {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.hud-card {
-  flex: 1;
+.hud-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.78);
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.88);
-  font-size: 0.84rem;
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
-.hud-card.is-hidden {
-  display: none;
+.hud-row__color {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
-.hud-card__label {
-  margin: 0;
-  color: var(--accent);
-  font-weight: 800;
-  font-size: 0.74rem;
-}
-
-.hud-card__value {
-  margin: 0;
-  font-size: 0.94rem;
-  font-weight: 800;
+.hud-row__name {
   color: var(--ink);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.hud-card__meta {
-  margin: 0;
-  font-size: 0.78rem;
+.hud-row__name--me {
+  color: var(--accent);
+}
+
+.hud-row__best {
+  color: var(--ink);
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.hud-row__status {
   color: var(--muted);
-  padding-left: 8px;
+  font-size: 0.72rem;
+  padding-left: 6px;
   border-left: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.hud-row.is-eliminated {
+  opacity: 0.55;
+}
+
+.hud-row.is-eliminated .hud-row__status {
+  color: var(--danger);
 }
 
 .hud__status {
@@ -819,35 +835,28 @@ button {
   .screen--play .hud {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: 6px;
     align-items: start;
   }
 
-  .screen--play .hud__group {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
-
-  .screen--play .hud-card {
-    min-width: 0;
-    padding: 8px 10px;
-    border-radius: 16px;
+  .screen--play .hud-row {
     background: rgba(255, 255, 255, 0.14);
     border: 1px solid rgba(255, 255, 255, 0.12);
     color: #fff6fb;
+    padding: 5px 10px;
   }
-
-  .screen--play .hud-card__label,
-  .screen--play .hud-card__meta {
-    color: rgba(255, 240, 247, 0.82);
-    font-size: 0.72rem;
+  .screen--play .hud-row__name {
+    color: #fff6fb;
   }
-
-  .screen--play .hud-card strong {
-    margin: 1px 0 2px;
-    font-size: 0.98rem;
+  .screen--play .hud-row__name--me {
+    color: #ffd1e1;
+  }
+  .screen--play .hud-row__best {
     color: #fff;
+  }
+  .screen--play .hud-row__status {
+    color: rgba(255, 240, 247, 0.78);
+    border-left-color: rgba(255, 255, 255, 0.18);
   }
 
   .screen--play .hud__status {
@@ -1330,7 +1339,8 @@ button {
 .character-intro {
   position: absolute;
   inset: 0;
-  z-index: 30;
+  /* 모바일에서 fixed 토픽바(z-index: 20)보다 낮게 두어 상단 타이틀이 보이도록 */
+  z-index: 15;
   display: grid;
   place-items: center;
   background:

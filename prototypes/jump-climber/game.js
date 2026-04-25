@@ -12,9 +12,7 @@ const spectatorBadgeEl = document.getElementById("spectatorBadge");
 const restartFromResultsButton = document.getElementById("restartFromResults");
 const exitAfterResultsButton = document.getElementById("exitAfterResults");
 const playerConfigCards = Array.from(document.querySelectorAll(".player-config"));
-const hudCards = Array.from(document.querySelectorAll(".hud-card"));
-const bestEls = [document.getElementById("best1"), document.getElementById("best2")];
-const lifeEls = [document.getElementById("life1"), document.getElementById("life2")];
+const hudListEl = document.getElementById("hudList");
 const resultsOverlay = document.getElementById("resultsOverlay");
 const resultRows = Array.from(document.querySelectorAll("[data-result-slot]"));
 const resultNameEls = [document.getElementById("resultName1"), document.getElementById("resultName2")];
@@ -183,7 +181,9 @@ const settings = {
   monsterSpawnIntervalMinMs: 5000,
   monsterSpawnIntervalMaxMs: 9500,
   monsterFirstSpawnDelayMs: 3000,
-  monsterBobAmplitude: 14,
+  monsterTurnIntervalMinMs: 1400,
+  monsterTurnIntervalMaxMs: 2800,
+  monsterLifetimeMs: 9000,
 };
 
 const PLAYER_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#ec4899", "#14b8a6", "#f97316"];
@@ -642,7 +642,7 @@ function clearNetworkWorld() {
   state.isSpectator = false;
   state.effects = [];
   if (spectatorBadgeEl) spectatorBadgeEl.classList.add("is-hidden");
-  chatOverlayEl.classList.add("is-hidden");
+  // 채팅 오버레이는 startGame 단계에서 노출하므로 여기선 숨기지 않는다.
 }
 
 function stopNetworkInputLoop() {
@@ -756,16 +756,37 @@ function showNetworkResultsOverlay(results) {
   resultsOverlay.classList.add("is-active");
 }
 
-function updateHudFromSnapshot(players) {
-  for (let slot = 0; slot < hudCards.length; slot += 1) {
-    if (!hudCards[slot]) continue;
-    const player = players.find((entry) => entry.slot === slot);
-    const active = Boolean(player);
+function renderHudList(rows) {
+  if (!hudListEl) return;
+  // 동일 markup이 이미 있으면 재사용해서 깜빡임 없도록 in-place 갱신
+  hudListEl.innerHTML = rows
+    .map((row) => {
+      const classes = ["hud-row"];
+      if (!row.alive) classes.push("is-eliminated");
+      const nameClass = row.isMe ? "hud-row__name hud-row__name--me" : "hud-row__name";
+      const status = row.alive ? "생존" : (row.score > 0 ? "탈락" : "대기");
+      return `
+        <div class="${classes.join(" ")}">
+          <span class="${nameClass}">${escapeHtml(row.name)}</span>
+          <strong class="hud-row__best">${row.score}m</strong>
+          <span class="hud-row__status">${status}</span>
+        </div>
+      `;
+    })
+    .join("");
+}
 
-    hudCards[slot].classList.toggle("is-hidden", !active);
-    if (bestEls[slot]) bestEls[slot].textContent = player ? `${player.bestHeight}m` : "0m";
-    if (lifeEls[slot]) lifeEls[slot].textContent = player ? (player.alive ? "생존" : "탈락") : "대기";
-  }
+function updateHudFromSnapshot(players) {
+  if (!Array.isArray(players)) return;
+  const myId = gameBoot?.playerId || null;
+  const sorted = [...players].sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
+  const rows = sorted.map((p) => ({
+    name: p.name || `${(p.slot ?? 0) + 1}P`,
+    score: Number.isFinite(p.bestHeight) ? p.bestHeight : 0,
+    alive: Boolean(p.alive),
+    isMe: myId ? p.id === myId : false,
+  }));
+  renderHudList(rows);
 }
 
 function syncEntityMap(map, items, createFn, updateFn) {
@@ -1158,6 +1179,12 @@ function updateNetworkTargets(snapshot) {
   } else if (snapshot.running) {
     const aliveCount = (snapshot.players || []).filter((player) => player.alive).length;
     setStatus(aliveCount > 1 ? "같은 맵에서 함께 점프 중!" : "한 명만 남았습니다. 끝까지 올라가세요!");
+    // 모든 플레이어 합류 완료 → 인트로 fade out 트리거
+    if (onNetworkRunning) {
+      const cb = onNetworkRunning;
+      onNetworkRunning = null;
+      cb();
+    }
   }
 }
 
@@ -1445,10 +1472,7 @@ function renderSetupUI() {
 }
 
 function updateHudVisibility() {
-  hudCards.forEach((card, slot) => {
-    if (!card) return;
-    card.classList.toggle("is-hidden", slot >= state.playerCount);
-  });
+  // hud-list는 동적 렌더이므로 별도 토글 불필요
 }
 
 function noteConfigChange() {
@@ -1560,51 +1584,69 @@ function spawnBoost(platform) {
   });
 }
 
-// 몬스터: 화면 한쪽 가장자리 바깥에서 등장 → 천천히 가로지름 → 반대편으로 사라짐
+// 몬스터: 가장자리에서 등장 → 랜덤 방향으로 떠돌이 → 수명/화면 밖에서 사라짐
+function pickInitialMonsterAngle(direction) {
+  const span = (Math.PI * 2) / 3;
+  if (direction === 1) {
+    return -span / 2 + Math.random() * span;
+  }
+  return Math.PI - span / 2 + Math.random() * span;
+}
+
 function spawnEdgeMonster() {
   const size = settings.monsterSize;
   const direction = Math.random() < 0.5 ? -1 : 1;
   const x = direction === 1 ? -size : settings.worldWidth;
-  // 보이는 윗 영역 (화면 위 0.15 ~ 0.55 구간)
   const arenaH = arena.clientHeight || 600;
   const y = state.cameraY + (0.15 + Math.random() * 0.4) * arenaH;
   const kind = Math.random() < 0.55 ? "cloud_imp" : "fluff_ghost";
+  const angle = pickInitialMonsterAngle(direction);
+  const speed = settings.monsterSpeed;
   const el = document.createElement("div");
   el.className = `monster monster--${kind}`;
   worldEl.appendChild(el);
+  const now = performance.now();
   state.monsters.push({
     x,
     y,
-    vx: direction * settings.monsterSpeed,
+    vx: Math.cos(angle) * speed,
+    vy: Math.sin(angle) * speed,
     size,
     kind,
     el,
-    direction,
     spawnY: y,
-    spawnTimeMs: performance.now(),
+    spawnTimeMs: now,
+    nextTurnAt: now + random(settings.monsterTurnIntervalMinMs, settings.monsterTurnIntervalMaxMs),
   });
 }
 
 function updateMonsters() {
   const now = performance.now();
   const arenaH = arena.clientHeight || 600;
+  const speed = settings.monsterSpeed;
   state.monsters = state.monsters.filter((m) => {
-    m.x += m.vx;
-    m.y = m.spawnY + Math.sin((now - m.spawnTimeMs) * 0.0012) * settings.monsterBobAmplitude;
+    if (now >= m.nextTurnAt) {
+      const angle = Math.random() * Math.PI * 2;
+      m.vx = Math.cos(angle) * speed;
+      m.vy = Math.sin(angle) * speed;
+      m.nextTurnAt = now + random(settings.monsterTurnIntervalMinMs, settings.monsterTurnIntervalMaxMs);
+    }
 
-    // 반대편으로 빠져나가면 제거
-    const exitedRight = m.direction === 1 && m.x > settings.worldWidth + 8;
-    const exitedLeft = m.direction === -1 && m.x + m.size < -8;
-    // 카메라가 위로 많이 올라가면 시야 밖 (화면 아래)도 정리
+    m.x += m.vx;
+    m.y += m.vy;
+
+    const margin = settings.monsterSize * 1.3;
+    const aged = (now - m.spawnTimeMs) > settings.monsterLifetimeMs;
+    const offscreen = m.x < -margin || m.x > settings.worldWidth + margin;
     const fellBehind = m.y > state.cameraY + arenaH + 200;
-    if (exitedRight || exitedLeft || fellBehind) {
+    const tooHigh = m.y < state.cameraY - arenaH;
+    if (aged || offscreen || fellBehind || tooHigh) {
       m.el.remove();
       return false;
     }
     return true;
   });
 
-  // 스폰 타이머 — 살아있는 플레이어가 있을 때만
   if (state.players.some((p) => p.alive) && now >= state.nextMonsterSpawnAt) {
     spawnEdgeMonster();
     state.nextMonsterSpawnAt = now + random(settings.monsterSpawnIntervalMinMs, settings.monsterSpawnIntervalMaxMs);
@@ -2041,19 +2083,19 @@ function render() {
 }
 
 function updateHud() {
-  for (let slot = 0; slot < hudCards.length; slot += 1) {
-    if (!hudCards[slot]) continue;
+  const rows = [];
+  for (let slot = 0; slot < state.playerCount; slot += 1) {
     const player = state.players.find((entry) => entry.slot === slot);
-    const active = slot < state.playerCount;
-
-    hudCards[slot].classList.toggle("is-hidden", !active);
-    if (bestEls[slot]) bestEls[slot].textContent = player ? `${player.bestHeight}m` : "0m";
-
-    if (!lifeEls[slot]) continue;
-    if (!active) { lifeEls[slot].textContent = "대기"; continue; }
-    if (!player) { lifeEls[slot].textContent = "준비"; continue; }
-    lifeEls[slot].textContent = player.alive ? "생존" : "탈락";
+    const characterId = state.setup[slot]?.characterId;
+    const charName = characterId ? getCharacter(characterId).name : `${slot + 1}P`;
+    rows.push({
+      name: charName,
+      score: player ? player.bestHeight : 0,
+      alive: player ? player.alive : true,
+      isMe: slot === 0,
+    });
   }
+  renderHudList(rows);
 }
 
 function loop() {
@@ -2072,7 +2114,10 @@ function loop() {
   }
 }
 
-function showCharacterIntro() {
+// 멀티 플레이 시 다른 플레이어 합류를 대기할 콜백 — updateNetworkTargets에서 running=true가 들어오면 호출.
+let onNetworkRunning = null;
+
+function presentCharacterIntro({ minMs = 2250, waitFor = null, maxMs = 12000 } = {}) {
   return new Promise((resolve) => {
     if (!characterIntroEl) { resolve(); return; }
     const setup = state.setup[0];
@@ -2083,21 +2128,31 @@ function showCharacterIntro() {
     introCharAbilityEl.textContent = character.abilityText || "";
 
     characterIntroEl.classList.remove("is-hidden", "is-fading");
-    // reflow → fade in
     void characterIntroEl.offsetWidth;
     characterIntroEl.classList.add("is-active");
 
-    // 인트로 등장 시 사운드도 살짝
     playBoostSound();
 
-    setTimeout(() => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
       characterIntroEl.classList.add("is-fading");
       setTimeout(() => {
         characterIntroEl.classList.remove("is-active", "is-fading");
         characterIntroEl.classList.add("is-hidden");
         resolve();
       }, 320);
-    }, 2250);
+    };
+
+    const minTimer = new Promise((r) => setTimeout(r, minMs));
+    if (waitFor) {
+      // 다른 플레이어가 모두 합류해 게임이 시작될 때까지 + 최소 표시 시간 만족 시 종료
+      const safety = new Promise((r) => setTimeout(r, maxMs));
+      Promise.all([minTimer, Promise.race([waitFor, safety])]).then(finish);
+    } else {
+      minTimer.then(finish);
+    }
   });
 }
 
@@ -2112,14 +2167,17 @@ function startGame() {
   hideResultsOverlay();
   showScreen("play");
   requestAnimationFrame(() => applyArenaScale(true));
+  showChatOverlay();
 
-  showCharacterIntro().then(() => {
-    if (isRoomSession) {
-      connectNetworkGame();
-    } else {
-      runSoloGame();
-    }
-  });
+  if (isRoomSession) {
+    // 방 플레이: 인트로 띄운 채로 ws 합류 → 모두 합류해 game.running=true가 되면 진입.
+    // 안전 장치: maxMs 안에 안 되면 그냥 인트로 닫고 진입.
+    const readyPromise = new Promise((resolve) => { onNetworkRunning = resolve; });
+    connectNetworkGame();
+    presentCharacterIntro({ minMs: 2250, waitFor: readyPromise, maxMs: 15000 });
+  } else {
+    presentCharacterIntro({ minMs: 2250 }).then(runSoloGame);
+  }
 }
 
 function runSoloGame() {
