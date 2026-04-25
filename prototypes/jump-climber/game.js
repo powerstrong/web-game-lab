@@ -371,14 +371,17 @@ function getSpriteSrc(character, pose) {
   return character.assets[pose] || character.assets.jump_neutral;
 }
 
+// 인게임 아바타가 사용하는 4종 포즈 — 한 번에 모두 렌더링하고 is-active 클래스만 토글해
+// src 교체 깜빡임을 제거한다 (모든 PNG는 미리 디코드된 채로 메모리에 상주).
+const GAME_POSES = ["jump_neutral", "jump_left", "jump_right", "fall_neutral"];
+
 function createAvatarMarkup(setup, label, compact = false, pose = "preview") {
   if (setup.characterId === "random") {
     const classes = ["avatar"];
     if (compact) classes.push("avatar--compact");
-    // PNG가 있으면 일반 avatar처럼, 없으면 dashed/gradient placeholder
     if (!randomMainImageAvailable) classes.push("avatar--random");
     const inner = randomMainImageAvailable
-      ? `<img class="avatar__sprite" src="${RANDOM_CHARACTER_OPTION.mainImage}" alt="랜덤" draggable="false" decoding="async" />`
+      ? `<img class="avatar__sprite is-active" src="${RANDOM_CHARACTER_OPTION.mainImage}" alt="랜덤" draggable="false" decoding="async" />`
       : `<div class="avatar__random-mark" aria-hidden="true">🎲</div>`;
     return `
       <div class="${classes.join(" ")} is-rising">
@@ -392,14 +395,34 @@ function createAvatarMarkup(setup, label, compact = false, pose = "preview") {
   const classes = ["avatar", `avatar--${character.id}`];
   if (compact) classes.push("avatar--compact");
 
+  // preview 모드(설정/인트로): 메인 이미지 한 장만
+  // 인게임: 4종 포즈를 모두 렌더링하고 is-active 클래스로 표시 전환
+  let inner;
+  if (pose === "preview") {
+    inner = `<img class="avatar__sprite is-active" src="${character.assets.preview}" alt="${character.name}" draggable="false" decoding="async" />`;
+  } else {
+    inner = GAME_POSES
+      .map((p) =>
+        `<img class="avatar__sprite ${p === pose ? "is-active" : ""}" data-pose="${p}" src="${character.assets[p]}" alt="" draggable="false" decoding="async" />`
+      )
+      .join("");
+  }
+
   return `
     <div class="${classes.join(" ")} is-rising">
       ${label ? `<span class="avatar__label">${escapeHtml(label)}</span>` : ""}
-      <div class="avatar__character">
-        <img class="avatar__sprite" src="${getSpriteSrc(character, pose)}" alt="${character.name}" draggable="false" decoding="async" />
-      </div>
+      <div class="avatar__character">${inner}</div>
     </div>
   `;
+}
+
+// 4종 포즈 중 하나를 활성화 (다른 모든 .avatar__sprite는 비활성).
+function setActiveAvatarPose(avatarEl, pose) {
+  if (!avatarEl) return;
+  const sprites = avatarEl.querySelectorAll(".avatar__sprite[data-pose]");
+  sprites.forEach((el) => {
+    el.classList.toggle("is-active", el.dataset.pose === pose);
+  });
 }
 
 function createCharacterOptionMarkup(character, slot, active) {
@@ -1059,7 +1082,7 @@ function updateNetworkTargets(snapshot) {
       const setupForRender = isLocalPlayer
         ? state.setup[0]
         : { ...createDefaultSetup(player.characterId), characterId: player.characterId };
-      if (entry.characterId !== player.characterId || !entry.spriteEl) {
+      if (entry.characterId !== player.characterId || !entry.avatarEl) {
         entry.el.innerHTML = createAvatarMarkup(
           setupForRender,
           getAvatarLabel(player.name, `${player.slot + 1}P`),
@@ -1071,8 +1094,7 @@ function updateNetworkTargets(snapshot) {
         entry.characterId = player.characterId;
         entry.pose = pose;
       } else if (entry.pose !== pose) {
-        const character = getCharacter(player.characterId);
-        entry.spriteEl.src = getSpriteSrc(character, pose);
+        setActiveAvatarPose(entry.avatarEl, pose);
         entry.pose = pose;
       }
 
@@ -1979,9 +2001,9 @@ function updatePlayerVisualState(player) {
     pose = "jump_right";
   }
 
-  if (player.pose !== pose && player.spriteEl) {
+  if (player.pose !== pose) {
     player.pose = pose;
-    player.spriteEl.src = getSpriteSrc(getCharacter(state.setup[player.slot].characterId), pose);
+    setActiveAvatarPose(avatar, pose);
   }
 
   avatar.classList.toggle("is-left", player.vx < -0.35);

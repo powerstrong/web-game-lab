@@ -378,7 +378,14 @@ function renderStartTally() {
 
   const btn = document.getElementById('start-btn');
   btn.classList.toggle('voted-start', myStartVote);
-  btn.textContent = myStartVote
+
+  // 게임을 고르지 않았으면 준비 완료 비활성화
+  const canReady = Boolean(myGameVote) || myStartVote;
+  btn.disabled = !canReady;
+  btn.title = canReady ? '' : '게임을 먼저 선택해 주세요.';
+  btn.textContent = !canReady
+    ? '게임 먼저 골라주세요'
+    : myStartVote
     ? `준비 취소 (${currentStartVotes.count}/${currentStartVotes.total})`
     : `준비 완료 (${currentStartVotes.count}/${currentStartVotes.total})`;
 }
@@ -394,9 +401,12 @@ function voteGame(gameId) {
   });
 
   send({ type: 'vote_game', gameId: newVote });
+  renderStartTally();
 }
 
 function voteStart() {
+  // 게임 미선택 + 아직 준비 안 한 상태면 무시 (버튼 비활성 시 도달하지 않지만 안전)
+  if (!myGameVote && !myStartVote) return;
   myStartVote = !myStartVote;
   send({ type: 'vote_start', vote: myStartVote });
   renderStartTally();
