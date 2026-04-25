@@ -115,20 +115,6 @@
     input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
     input[type="number"] { -moz-appearance: textfield; }
 
-    .actions {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-      margin-top: 14px;
-    }
-
-    .join-row {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-      margin-top: 14px;
-    }
-
     .btn {
       width: 100%;
       min-height: 54px;
@@ -148,6 +134,7 @@
       background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
       color: #fff;
       box-shadow: 0 16px 28px rgba(75, 107, 255, 0.24);
+      margin-top: 14px;
     }
 
     .btn-secondary {
@@ -162,8 +149,45 @@
       font-size: 0.9rem;
     }
 
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .divider::before,
+    .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .join-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .join-row input {
+      min-width: 0;
+    }
+
+    .join-row .btn {
+      width: auto;
+      padding: 0 22px;
+      white-space: nowrap;
+    }
+
     .tip {
-      margin-top: 16px;
+      margin-top: 20px;
       padding: 14px 16px;
       border-radius: 16px;
       background: var(--surface-strong);
@@ -176,14 +200,6 @@
       .shell {
         padding: 28px 24px;
       }
-
-      .join-row {
-        grid-template-columns: minmax(0, 1fr) auto;
-      }
-
-      .join-row .btn {
-        width: auto;
-      }
     }
   </style>
 </head>
@@ -191,7 +207,7 @@
   <main class="shell">
     <p class="eyebrow">GAME LOBBY</p>
     <h1>방을 열고<br />플레이어를 모으세요</h1>
-    <p class="lead">닉네임을 정한 뒤 새 방을 만들거나, 공유받은 코드로 바로 합류하면 됩니다.</p>
+    <p class="lead">닉네임을 정한 뒤 새 방을 만들거나, 받은 코드로 바로 합류하세요.</p>
 
     <section class="field">
       <label for="player-name">닉네임</label>
@@ -204,32 +220,25 @@
         spellcheck="false"
       />
       <div class="error-msg" id="name-error"></div>
-    </section>
-
-    <section class="field">
-      <div class="actions">
-        <button class="btn btn-primary" id="create-btn">새 방 만들기</button>
-        <button class="btn btn-secondary" id="focus-join-btn" type="button">코드로 참가</button>
-      </div>
+      <button class="btn btn-primary" id="create-btn">새 방 만들기</button>
       <div class="error-msg" id="create-error"></div>
     </section>
 
-    <section class="field">
-      <label for="room-code">방 코드</label>
-      <div class="join-row">
-        <input
-          type="number"
-          id="room-code"
-          placeholder="1234"
-          min="1000"
-          max="9999"
-        />
-        <button class="btn btn-secondary" id="join-btn">입장</button>
-      </div>
-      <div class="error-msg" id="join-error"></div>
-    </section>
+    <div class="divider">또는 코드로 합류</div>
 
-    <p class="tip" id="game-tip">방을 만든 플레이어가 판을 여는 호스트가 되고, 나머지는 코드로 바로 합류합니다.</p>
+    <div class="join-row">
+      <input
+        type="number"
+        id="room-code"
+        placeholder="방 코드 1234"
+        min="1000"
+        max="9999"
+      />
+      <button class="btn btn-secondary" id="join-btn">입장</button>
+    </div>
+    <div class="error-msg" id="join-error"></div>
+
+    <p class="tip" id="game-tip">방을 만든 플레이어가 호스트가 되고, 나머지는 코드로 합류합니다.</p>
   </main>
 
   <script src="../games/registry.js"></script>
@@ -238,7 +247,6 @@
     const nameInput = document.getElementById('player-name');
     const codeInput = document.getElementById('room-code');
     const createBtn = document.getElementById('create-btn');
-    const focusJoinBtn = document.getElementById('focus-join-btn');
     const joinBtn = document.getElementById('join-btn');
     const nameError = document.getElementById('name-error');
     const createError = document.getElementById('create-error');
@@ -267,10 +275,6 @@
     nameInput.addEventListener('input', () => {
       sessionStorage.setItem('playerName', nameInput.value.trim());
       nameError.textContent = '';
-    });
-
-    focusJoinBtn.addEventListener('click', () => {
-      codeInput.focus();
     });
 
     function getValidName() {

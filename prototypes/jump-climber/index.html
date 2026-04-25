@@ -10,139 +10,30 @@
     <main class="game-shell">
       <section id="setupScreen" class="screen screen--setup is-active">
         <div class="main-banner">
-          <img src="/assets/main banner.png" alt="말랑프렌즈 아케이드" class="main-banner__img" />
+          <img src="/assets/main banner.png" alt="말랑프렌즈 아케이드" class="main-banner__img" draggable="false" />
         </div>
 
         <section class="panel setup-panel" aria-labelledby="setupTitle">
           <div class="setup-title-img">
-            <img src="/assets/game_title_jump.png" alt="말랑프렌즈 점프" />
-          </div>
-
-          <div class="setup-panel__head">
-            <div>
-              <p class="section-kicker">Start Setup</p>
-              <h2 id="setupTitle">플레이 설정</h2>
-            </div>
-
-            <div class="count-switch" role="group" aria-label="플레이어 수">
-              <button type="button" class="count-switch__button is-active" data-player-count="1">
-                1P
-              </button>
-              <button type="button" class="count-switch__button" data-player-count="2">2P</button>
-            </div>
+            <img src="/assets/game_title_jump.png" alt="말랑프렌즈 점프" draggable="false" />
           </div>
 
           <p id="setupHint" class="setup-hint">
-            1P는 <strong>A / D</strong>, 2P는 <strong>방향키</strong>로 움직입니다.
-            모바일에서는 맵 아무 곳이나 눌러 좌우 입력합니다.
+            화면 좌우를 눌러 움직여요. <strong>🎲 랜덤</strong>은 숨겨진 친구도 추첨!
           </p>
 
-          <div class="player-configs">
-            <article class="player-config" data-player-slot="0">
-              <div class="player-config__top">
-                <div>
-                  <p class="player-config__slot">1P</p>
-                  <h3 class="player-config__name" data-player-name="0">모찌 토끼</h3>
-                </div>
+          <article class="player-config" data-player-slot="0">
+            <div class="player-config__top">
+              <h3 class="player-config__name" data-player-name="0">모찌 토끼</h3>
+              <p class="player-config__ability" data-player-ability="0"></p>
+            </div>
 
-                <label class="face-toggle">
-                  <input type="checkbox" class="face-enabled" />
-                  <span>얼굴 사진 사용</span>
-                </label>
-              </div>
-
-              <div class="player-config__preview" data-preview-slot="0"></div>
-              <div class="character-options" data-character-options="0"></div>
-
-              <div class="face-tools">
-                <label class="field">
-                  <span>얼굴 사진</span>
-                  <input type="file" accept="image/*" class="face-upload" />
-                </label>
-
-                <label class="field">
-                  <span>얼굴 확대</span>
-                  <input type="range" min="80" max="180" value="100" class="face-scale" />
-                </label>
-
-                <label class="field">
-                  <span>사진 확대</span>
-                  <input type="range" min="80" max="220" value="100" class="photo-scale" />
-                </label>
-
-                <label class="field">
-                  <span>캐릭터 크기</span>
-                  <input type="range" min="80" max="180" value="100" class="character-scale" />
-                </label>
-
-                <label class="field">
-                  <span>좌우</span>
-                  <input type="range" min="-40" max="40" value="0" class="face-x" />
-                </label>
-
-                <label class="field">
-                  <span>상하</span>
-                  <input type="range" min="-40" max="40" value="0" class="face-y" />
-                </label>
-
-                <button type="button" class="ghost-button face-reset">기본 얼굴로</button>
-              </div>
-            </article>
-
-            <article class="player-config" data-player-slot="1">
-              <div class="player-config__top">
-                <div>
-                  <p class="player-config__slot">2P</p>
-                  <h3 class="player-config__name" data-player-name="1">푸딩 햄스터</h3>
-                </div>
-
-                <label class="face-toggle">
-                  <input type="checkbox" class="face-enabled" />
-                  <span>얼굴 사진 사용</span>
-                </label>
-              </div>
-
-              <div class="player-config__preview" data-preview-slot="1"></div>
-              <div class="character-options" data-character-options="1"></div>
-
-              <div class="face-tools">
-                <label class="field">
-                  <span>얼굴 사진</span>
-                  <input type="file" accept="image/*" class="face-upload" />
-                </label>
-
-                <label class="field">
-                  <span>얼굴 확대</span>
-                  <input type="range" min="80" max="180" value="100" class="face-scale" />
-                </label>
-
-                <label class="field">
-                  <span>사진 확대</span>
-                  <input type="range" min="80" max="220" value="100" class="photo-scale" />
-                </label>
-
-                <label class="field">
-                  <span>캐릭터 크기</span>
-                  <input type="range" min="80" max="180" value="100" class="character-scale" />
-                </label>
-
-                <label class="field">
-                  <span>좌우</span>
-                  <input type="range" min="-40" max="40" value="0" class="face-x" />
-                </label>
-
-                <label class="field">
-                  <span>상하</span>
-                  <input type="range" min="-40" max="40" value="0" class="face-y" />
-                </label>
-
-                <button type="button" class="ghost-button face-reset">기본 얼굴로</button>
-              </div>
-            </article>
-          </div>
+            <div class="player-config__preview" data-preview-slot="0"></div>
+            <div class="character-options" data-character-options="0"></div>
+          </article>
 
           <div class="setup-actions">
-            <button id="startGame" type="button" class="primary-action">현재 설정으로 시작</button>
+            <button id="startGame" type="button" class="primary-action">시작!</button>
           </div>
         </section>
       </section>
@@ -151,35 +42,26 @@
         <header class="panel play-topbar">
           <div class="play-topbar__main">
             <div class="play-brand">
-              <img src="/assets/game_title_jump.png" alt="" class="play-brand__icon" />
-              <div class="play-brand__text">
-                <p class="section-kicker">Live Play</p>
-                <h2 id="playTitle" class="play-title">말랑프렌즈 점프</h2>
-              </div>
+              <img src="/assets/game_title_jump.png" alt="" class="play-brand__icon" draggable="false" />
+              <h2 id="playTitle" class="play-title">말랑프렌즈 점프</h2>
             </div>
 
             <div class="play-actions">
               <button id="backToSetup" type="button" class="secondary-action">설정</button>
-              <button id="restart" type="button" class="secondary-action">다시 시작</button>
+              <button id="restart" type="button" class="secondary-action">다시</button>
             </div>
           </div>
 
           <div class="hud">
             <div class="hud__group">
               <div class="hud-card" data-hud-slot="0">
-                <span class="hud-card__label">1P BEST</span>
+                <span class="hud-card__label">BEST</span>
                 <strong id="best1" class="hud-card__value">0m</strong>
                 <span id="life1" class="hud-card__meta">준비</span>
               </div>
-
-              <div class="hud-card" data-hud-slot="1">
-                <span class="hud-card__label">2P BEST</span>
-                <strong id="best2" class="hud-card__value">0m</strong>
-                <span id="life2" class="hud-card__meta">대기</span>
-              </div>
             </div>
 
-            <div id="status" class="hud__status">캐릭터를 고르고 시작해 보세요.</div>
+            <div id="status" class="hud__status">캐릭터를 골라 시작!</div>
           </div>
         </header>
 
@@ -193,7 +75,7 @@
             </div>
 
             <div id="spectatorBadge" class="spectator-badge is-hidden">
-              <img src="/assets/badge_spectator.png" alt="관전" />
+              <img src="/assets/badge_spectator.png" alt="관전" draggable="false" />
             </div>
 
             <div id="chatOverlay" class="chat-overlay is-hidden" aria-label="채팅">
@@ -207,16 +89,22 @@
               </div>
             </div>
 
+            <div id="characterIntro" class="character-intro is-hidden" aria-hidden="true">
+              <div class="character-intro__burst"></div>
+              <img id="introCharImg" class="character-intro__sprite" src="" alt="" draggable="false" />
+              <h2 id="introCharName" class="character-intro__name"></h2>
+              <p id="introCharAbility" class="character-intro__ability"></p>
+            </div>
+
             <div id="resultsOverlay" class="results-overlay" aria-live="polite">
               <div class="results-card">
                 <div class="results-trophy">
-                  <img src="/assets/result_trophy.png" alt="" />
+                  <img src="/assets/result_trophy.png" alt="" draggable="false" />
                 </div>
-                <p class="section-kicker">Round Result</p>
-                <h2 class="results-title">이번 점프 결과</h2>
+                <h2 class="results-title">결과</h2>
                 <div class="results-list">
                   <div class="result-row" data-result-slot="0">
-                    <span class="result-row__label" id="resultName1">1P</span>
+                    <span class="result-row__label" id="resultName1">YOU</span>
                     <strong id="resultScore1">0m</strong>
                   </div>
                   <div class="result-row" data-result-slot="1">
@@ -224,10 +112,10 @@
                     <strong id="resultScore2">0m</strong>
                   </div>
                 </div>
-                <div id="resultLead" class="results-lead">다시 시작해서 기록을 더 올려보세요.</div>
+                <div id="resultLead" class="results-lead">한 번 더 도전!</div>
                 <div class="results-actions">
-                  <button id="restartFromResults" type="button" class="primary-action">한 판 더 하기</button>
-                  <button id="exitAfterResults" type="button" class="secondary-action">허브로 가기</button>
+                  <button id="restartFromResults" type="button" class="primary-action">한 판 더</button>
+                  <button id="exitAfterResults" type="button" class="secondary-action">허브로</button>
                 </div>
               </div>
             </div>

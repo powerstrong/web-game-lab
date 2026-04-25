@@ -11,7 +11,6 @@ const playTitleEl = document.getElementById("playTitle");
 const spectatorBadgeEl = document.getElementById("spectatorBadge");
 const restartFromResultsButton = document.getElementById("restartFromResults");
 const exitAfterResultsButton = document.getElementById("exitAfterResults");
-const playerCountButtons = Array.from(document.querySelectorAll("[data-player-count]"));
 const playerConfigCards = Array.from(document.querySelectorAll(".player-config"));
 const hudCards = Array.from(document.querySelectorAll(".hud-card"));
 const bestEls = [document.getElementById("best1"), document.getElementById("best2")];
@@ -21,6 +20,10 @@ const resultRows = Array.from(document.querySelectorAll("[data-result-slot]"));
 const resultNameEls = [document.getElementById("resultName1"), document.getElementById("resultName2")];
 const resultScoreEls = [document.getElementById("resultScore1"), document.getElementById("resultScore2")];
 const resultLeadEl = document.getElementById("resultLead");
+const characterIntroEl = document.getElementById("characterIntro");
+const introCharImgEl = document.getElementById("introCharImg");
+const introCharNameEl = document.getElementById("introCharName");
+const introCharAbilityEl = document.getElementById("introCharAbility");
 const chatOverlayEl = document.getElementById("chatOverlay");
 const chatMessagesEl = document.getElementById("chatMessages");
 const chatToggleBtn = document.getElementById("chatToggle");
@@ -38,9 +41,9 @@ const CHARACTER_LIST = [
   {
     id: "mochi-rabbit",
     name: "모찌 토끼",
-    faceBox: { left: 50, top: 34, size: 22 },
+    abilityText: "통! 통! 한 번 더 높이 ⬆",
     assets: {
-      preview: assetPath("토끼 오른쪽 점프.png"),
+      preview: assetPath("토끼 메인 이미지.png"),
       jump_neutral: assetPath("토끼 점프 위로.png"),
       jump_left: assetPath("토끼 왼쪽 점프.png"),
       jump_right: assetPath("토끼 오른쪽 점프.png"),
@@ -50,9 +53,9 @@ const CHARACTER_LIST = [
   {
     id: "pudding-hamster",
     name: "푸딩 햄스터",
-    faceBox: { left: 50, top: 35, size: 22 },
+    abilityText: "쪼르르~ 옆으로 발 빠름 🌀",
     assets: {
-      preview: assetPath("햄스터 오른쪽.png"),
+      preview: assetPath("햄스터 메인 이미지.png"),
       jump_neutral: assetPath("햄스터 점프 위로.png"),
       jump_left: assetPath("햄스터 왼쪽.png"),
       jump_right: assetPath("햄스터 오른쪽.png"),
@@ -62,18 +65,89 @@ const CHARACTER_LIST = [
   {
     id: "peach-chick",
     name: "말랑 병아리",
-    faceBox: { left: 50, top: 34, size: 19 },
+    abilityText: "사뿐... 가볍게 천천히 ☁",
     assets: {
-      preview: assetPath("병아리 오른쪽 점프.png"),
+      preview: assetPath("병아리 메인 이미지.png"),
       jump_neutral: assetPath("병아리 점프.png"),
       jump_left: assetPath("병아리 왼쪽 점프.png"),
       jump_right: assetPath("병아리 오른쪽 점프.png"),
       fall_neutral: assetPath("병아리 추락.png"),
     },
   },
+  // ── 신규 캐릭터: 명시 선택 UI에 노출되지 않고 🎲 랜덤으로만 등장 ──
+  {
+    id: "latte-puppy",
+    name: "라떼 강아지",
+    abilityText: "셋 세고~ 두근! 슈퍼점프 ✨",
+    secret: true,
+    assets: {
+      // 미리보기/결과화면용 메인 컷 (전신 풀 일러스트)
+      preview: assetPath("라떼 메인 이미지.png"),
+      jump_neutral: assetPath("라떼 점프 위로.png"),
+      jump_left: assetPath("라떼 왼쪽 점프.png"),
+      jump_right: assetPath("라떼 오른쪽 점프.png"),
+      fall_neutral: assetPath("라떼 추락.png"),
+    },
+  },
+  {
+    id: "mint-kitten",
+    name: "민트 고양이",
+    abilityText: "별 한 입에 하늘까지 🌟",
+    secret: true,
+    assets: {
+      preview: assetPath("고양이 메인이미지.png"),
+      jump_neutral: assetPath("고양이 점프 위로.png"),
+      jump_left: assetPath("고양이 왼쪽 점프.png"),
+      jump_right: assetPath("고양이 오른쪽 점프.png"),
+      fall_neutral: assetPath("고양이 추락.png"),
+    },
+  },
 ];
 
 const CHARACTER_MAP = Object.fromEntries(CHARACTER_LIST.map((character) => [character.id, character]));
+const PUBLIC_CHARACTER_LIST = CHARACTER_LIST.filter((c) => !c.secret);
+const RANDOM_CHARACTER_OPTION = {
+  id: "random",
+  name: "랜덤",
+  abilityText: "두근... 누가 나올까? 🎲",
+  // 별도 메인 이미지를 두면 자동 사용 (없어도 emoji placeholder로 폴백)
+  mainImage: assetPath("랜덤 메인 이미지.png"),
+};
+
+// 서버 worker/src/room.js의 JUMP_CHARACTER_ABILITIES와 같은 값. 클라 솔로 모드 + UI 표시용.
+const CHARACTER_ABILITIES = {
+  "mochi-rabbit":    { jumpMul: 1.06, gravityMul: 1.00, moveMul: 1.00, boostMul: 1.00, superJumpEvery: 0 },
+  "pudding-hamster": { jumpMul: 1.00, gravityMul: 1.00, moveMul: 1.18, boostMul: 1.00, superJumpEvery: 0 },
+  "peach-chick":     { jumpMul: 1.00, gravityMul: 0.85, moveMul: 1.00, boostMul: 1.00, superJumpEvery: 0 },
+  "latte-puppy":     { jumpMul: 1.00, gravityMul: 1.00, moveMul: 1.00, boostMul: 1.00, superJumpEvery: 3 },
+  "mint-kitten":     { jumpMul: 1.00, gravityMul: 1.00, moveMul: 1.00, boostMul: 1.50, superJumpEvery: 0 },
+};
+
+const DEFAULT_ABILITIES = CHARACTER_ABILITIES["mochi-rabbit"];
+
+function getAbilities(characterId) {
+  return CHARACTER_ABILITIES[characterId] || DEFAULT_ABILITIES;
+}
+
+function pickRandomCharacterId() {
+  const pool = CHARACTER_LIST;
+  return pool[Math.floor(Math.random() * pool.length)].id;
+}
+
+// 랜덤 메인 이미지가 assets에 있는지 사전 검출 — 없으면 🎲 이모지로 폴백
+let randomMainImageAvailable = false;
+(function probeRandomImage() {
+  const probe = new Image();
+  probe.onload = () => {
+    randomMainImageAvailable = true;
+    if (typeof renderSetupUI === "function" && setupScreen.classList.contains("is-active")) {
+      renderSetupUI();
+    }
+  };
+  probe.onerror = () => { randomMainImageAvailable = false; };
+  probe.src = RANDOM_CHARACTER_OPTION.mainImage;
+})();
+
 const PLATFORM_KINDS = ["leaf", "cloud", "cake"];
 const BOOST_META = {
   rocket: { label: "UP", message: "로켓 부스트" },
@@ -104,6 +178,12 @@ const settings = {
   pathRequiredShiftMax: 85,
   platformWidthMinLate: 74,
   platformWidthMaxLate: 122,
+  monsterSize: 280,
+  monsterSpeed: 1.05,
+  monsterSpawnIntervalMinMs: 5000,
+  monsterSpawnIntervalMaxMs: 9500,
+  monsterFirstSpawnDelayMs: 3000,
+  monsterBobAmplitude: 14,
 };
 
 const PLAYER_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#ec4899", "#14b8a6", "#f97316"];
@@ -137,6 +217,8 @@ const state = {
   players: [],
   platforms: [],
   boosts: [],
+  monsters: [],
+  nextMonsterSpawnAt: 0,
   effects: [],
   resultSubmitted: false,
   audio: {
@@ -166,6 +248,7 @@ const state = {
     lastFrameTime: 0,
     platformEls: new Map(),
     boostEls: new Map(),
+    monsterEls: new Map(),
     playerEls: new Map(),
   },
 };
@@ -174,31 +257,21 @@ const configRefs = playerConfigCards.map((card, slot) => ({
   slot,
   card,
   name: card.querySelector(`[data-player-name="${slot}"]`),
+  ability: card.querySelector(`[data-player-ability="${slot}"]`),
   preview: card.querySelector(`[data-preview-slot="${slot}"]`),
   options: card.querySelector(`[data-character-options="${slot}"]`),
-  faceEnabled: card.querySelector(".face-enabled"),
-  faceUpload: card.querySelector(".face-upload"),
-  faceScale: card.querySelector(".face-scale"),
-  photoScale: card.querySelector(".photo-scale"),
-  characterScale: card.querySelector(".character-scale"),
-  faceX: card.querySelector(".face-x"),
-  faceY: card.querySelector(".face-y"),
-  faceReset: card.querySelector(".face-reset"),
 }));
 
 function createDefaultSetup(characterId) {
   return {
-    characterId,
-    faceEnabled: false,
-    faceUrl: "",
-    faceTransform: {
-      scale: 1,
-      x: 0,
-      y: 0,
-    },
-    photoScale: 1,
-    characterScale: 1,
+    selectedId: characterId,
+    characterId: characterId === "random" ? pickRandomCharacterId() : characterId,
   };
+}
+
+function applySetupChoice(setup, selectedId) {
+  setup.selectedId = selectedId;
+  setup.characterId = selectedId === "random" ? pickRandomCharacterId() : selectedId;
 }
 
 function random(min, max) {
@@ -299,35 +372,31 @@ function getSpriteSrc(character, pose) {
 }
 
 function createAvatarMarkup(setup, label, compact = false, pose = "preview") {
-  const character = getCharacter(setup.characterId);
-  const hasCustomFace = Boolean(setup.faceEnabled && setup.faceUrl);
-  const classes = ["avatar", `avatar--${character.id}`];
-
-  if (compact) {
-    classes.push("avatar--compact");
+  if (setup.characterId === "random") {
+    const classes = ["avatar"];
+    if (compact) classes.push("avatar--compact");
+    // PNG가 있으면 일반 avatar처럼, 없으면 dashed/gradient placeholder
+    if (!randomMainImageAvailable) classes.push("avatar--random");
+    const inner = randomMainImageAvailable
+      ? `<img class="avatar__sprite" src="${RANDOM_CHARACTER_OPTION.mainImage}" alt="랜덤" draggable="false" />`
+      : `<div class="avatar__random-mark" aria-hidden="true">🎲</div>`;
+    return `
+      <div class="${classes.join(" ")} is-rising">
+        ${label ? `<span class="avatar__label">${escapeHtml(label)}</span>` : ""}
+        <div class="avatar__character">${inner}</div>
+      </div>
+    `;
   }
 
-  const transform = setup.faceTransform;
-  const faceBox = character.faceBox;
-  const style =
-    `--face-size-scale:${transform.scale}; --photo-scale:${setup.photoScale || 1}; --character-scale:${setup.characterScale || 1}; ` +
-    `--face-x:${transform.x}; --face-y:${transform.y}; ` +
-    `--face-left:${faceBox.left}%; --face-top:${faceBox.top}%; --face-size:${faceBox.size}%;`;
+  const character = getCharacter(setup.characterId);
+  const classes = ["avatar", `avatar--${character.id}`];
+  if (compact) classes.push("avatar--compact");
 
   return `
-    <div class="${classes.join(" ")} is-rising" style="${style}">
+    <div class="${classes.join(" ")} is-rising">
       ${label ? `<span class="avatar__label">${escapeHtml(label)}</span>` : ""}
       <div class="avatar__character">
-        <img class="avatar__sprite" src="${getSpriteSrc(character, pose)}" alt="${character.name}" />
-        ${
-          hasCustomFace
-            ? `
-              <div class="avatar__face-mask">
-                <img class="avatar__face-photo" src="${setup.faceUrl}" alt="" />
-              </div>
-            `
-            : ""
-        }
+        <img class="avatar__sprite" src="${getSpriteSrc(character, pose)}" alt="${character.name}" draggable="false" />
       </div>
     </div>
   `;
@@ -341,7 +410,7 @@ function createCharacterOptionMarkup(character, slot, active) {
       data-slot="${slot}"
       data-character-id="${character.id}"
     >
-      ${createAvatarMarkup({ ...createDefaultSetup(character.id), faceEnabled: false }, "", true, "preview")}
+      ${createAvatarMarkup({ characterId: character.id }, "", true, "preview")}
       <span class="character-option__name">${character.name}</span>
     </button>
   `;
@@ -525,9 +594,11 @@ function formatWorldTranslate(x, y, extraTransform = "") {
 function clearNetworkWorld() {
   state.network.platformEls.forEach((entry) => entry.el?.remove());
   state.network.boostEls.forEach((entry) => entry.el?.remove());
+  state.network.monsterEls.forEach((entry) => entry.el?.remove());
   state.network.playerEls.forEach(({ el }) => el.remove());
   state.network.platformEls.clear();
   state.network.boostEls.clear();
+  state.network.monsterEls.clear();
   state.network.playerEls.clear();
   state.network.joined = false;
   state.network.protocol = null;
@@ -663,13 +734,14 @@ function showNetworkResultsOverlay(results) {
 }
 
 function updateHudFromSnapshot(players) {
-  for (let slot = 0; slot < 2; slot += 1) {
+  for (let slot = 0; slot < hudCards.length; slot += 1) {
+    if (!hudCards[slot]) continue;
     const player = players.find((entry) => entry.slot === slot);
     const active = Boolean(player);
 
     hudCards[slot].classList.toggle("is-hidden", !active);
-    bestEls[slot].textContent = player ? `${player.bestHeight}m` : "0m";
-    lifeEls[slot].textContent = player ? (player.alive ? "생존" : "탈락") : "대기";
+    if (bestEls[slot]) bestEls[slot].textContent = player ? `${player.bestHeight}m` : "0m";
+    if (lifeEls[slot]) lifeEls[slot].textContent = player ? (player.alive ? "생존" : "탈락") : "대기";
   }
 }
 
@@ -942,6 +1014,35 @@ function updateNetworkTargets(snapshot) {
     );
   }
 
+  if (Array.isArray(snapshot.monsters)) {
+    const updateNow = performance.now();
+    syncEntityMap(
+      state.network.monsterEls,
+      snapshot.monsters,
+      (m) => {
+        const el = document.createElement("div");
+        el.className = `monster monster--${m.kind}`;
+        worldEl.appendChild(el);
+        return {
+          el,
+          prevX: m.x,
+          prevY: m.y,
+          worldX: m.x,
+          worldY: m.y,
+          lastUpdateMs: updateNow,
+        };
+      },
+      (entry, m) => {
+        entry.el.className = `monster monster--${m.kind}`;
+        entry.prevX = entry.worldX;
+        entry.prevY = entry.worldY;
+        entry.worldX = m.x;
+        entry.worldY = m.y;
+        entry.lastUpdateMs = updateNow;
+      }
+    );
+  }
+
   syncEntityMap(
     state.network.playerEls,
     snapshot.players || [],
@@ -994,28 +1095,35 @@ function updateNetworkTargets(snapshot) {
       entry.alive = player.alive;
       entry.latest = player;
 
-      if (isLocalPlayer && previousLatest) {
-        const landed =
-          previousLatest.alive &&
-          previousLatest.vy > 0.8 &&
-          player.alive &&
-          player.vy <= settings.normalJump + 0.2;
-        if (landed) {
-          spawnEffect("land", player.x + player.width / 2, player.y + player.height + 4);
-          spawnEffect("jump", player.x + player.width / 2, player.y + player.height * 0.8);
-          playLandSound();
-          playJumpSound();
-        }
+      // bounceTag가 변하면 새 점프(착지/슈퍼/부스트)이므로 시각효과 트리거
+      const bounceChanged =
+        previousLatest && Number.isFinite(previousLatest.bounceTag) &&
+        Number.isFinite(player.bounceTag) &&
+        previousLatest.bounceTag !== player.bounceTag;
 
-        const boosted =
-          previousLatest.alive &&
-          player.alive &&
-          previousLatest.vy > settings.boostJump + 3 &&
-          player.vy <= settings.boostJump + 0.2;
-        if (boosted) {
-          spawnEffect("boost", player.x + player.width / 2, player.y + player.height / 2);
-          spawnEffect("pickup", player.x + player.width / 2, player.y + 8);
-          playBoostSound();
+      if (bounceChanged && previousLatest.alive && player.alive) {
+        const cx = player.x + player.width / 2;
+        const cyMid = player.y + player.height / 2;
+        const cyFoot = player.y + player.height;
+        if (player.lastBounceKind === "boost") {
+          spawnEffect("boost", cx, cyMid);
+          spawnEffect("pickup", cx, player.y + 8);
+          spawnEffect("burst", cx, cyMid);
+          if (isLocalPlayer) playBoostSound();
+          triggerNetworkBoostFx(entry, "boost");
+        } else if (player.lastBounceKind === "super") {
+          spawnEffect("boost", cx, cyMid);
+          spawnEffect("burst", cx, cyMid);
+          if (isLocalPlayer) playBoostSound();
+          triggerNetworkBoostFx(entry, "super");
+        } else {
+          // 일반 착지
+          spawnEffect("land", cx, cyFoot + 4);
+          spawnEffect("jump", cx, cyFoot);
+          if (isLocalPlayer) {
+            playLandSound();
+            playJumpSound();
+          }
         }
       }
     }
@@ -1081,10 +1189,22 @@ function renderNetworkFrame(now) {
     renderNetworkBoostEntry(entry);
   });
 
+  state.network.monsterEls.forEach((entry) => {
+    // 50ms 서버 틱 사이를 prev → current로 선형 보간 (플레이어 보간과 동일한 시각 흐름).
+    const t = entry.lastUpdateMs
+      ? clamp((now - entry.lastUpdateMs) / NETWORK_TICK_MS, 0, 1)
+      : 1;
+    const x = lerp(entry.prevX, entry.worldX, t);
+    const y = lerp(entry.prevY, entry.worldY, t);
+    entry.el.style.transform = formatWorldTranslate(x, y - state.cameraY);
+  });
+
   state.network.playerEls.forEach((entry) => {
     if (entry.isLocalPlayer) {
+      // 로컬 예측: 서버와 동일한 능력치 moveMul을 사용해 움직여야 서버 보정이 덜 튄다.
+      const localAbilities = getAbilities(state.setup[0].characterId);
       const predictedDirection = getPlayerDirection(0);
-      entry.currentX += predictedDirection * settings.moveSpeed * predictionStep;
+      entry.currentX += predictedDirection * settings.moveSpeed * localAbilities.moveMul * predictionStep;
       entry.currentX += (entry.serverX - entry.currentX) * 0.08;
       entry.currentY += (entry.serverY - entry.currentY) * 0.18;
       entry.currentX = clamp(entry.currentX, 0, settings.worldWidth - (entry.latest?.width || 46));
@@ -1263,42 +1383,35 @@ function connectNetworkGame() {
   });
 }
 
-function renderSetupUI() {
-  playerCountButtons.forEach((button) => {
-    button.classList.toggle("is-active", Number(button.dataset.playerCount) === state.playerCount);
-  });
+function getDisplayName(setup) {
+  if (setup.selectedId === "random") return RANDOM_CHARACTER_OPTION.name;
+  return getCharacter(setup.selectedId || setup.characterId).name;
+}
 
+function getDisplayAbility(setup) {
+  if (setup.selectedId === "random") return RANDOM_CHARACTER_OPTION.abilityText;
+  return getCharacter(setup.selectedId || setup.characterId).abilityText || "";
+}
+
+function renderSetupUI() {
   configRefs.forEach((ref, slot) => {
     const setup = state.setup[slot];
-    const character = getCharacter(setup.characterId);
     const isActiveSlot = slot < state.playerCount;
-    const slidersEnabled = Boolean(setup.faceEnabled && setup.faceUrl);
-    const faceControlsLocked = false;
+    const previewId = setup.selectedId || setup.characterId;
 
     ref.card.classList.toggle("is-hidden", !isActiveSlot);
-    ref.name.textContent = character.name;
-    ref.preview.innerHTML = createAvatarMarkup(setup, `${slot + 1}P`, false, "preview");
-    ref.options.innerHTML = CHARACTER_LIST.map((item) =>
-      createCharacterOptionMarkup(item, slot, item.id === setup.characterId)
-    ).join("");
-    ref.faceEnabled.checked = setup.faceEnabled;
-    ref.faceScale.value = Math.round(setup.faceTransform.scale * 100);
-    ref.photoScale.value = Math.round((setup.photoScale || 1) * 100);
-    ref.characterScale.value = Math.round((setup.characterScale || 1) * 100);
-    ref.faceX.value = setup.faceTransform.x;
-    ref.faceY.value = setup.faceTransform.y;
-    ref.faceEnabled.disabled = faceControlsLocked;
-    ref.faceUpload.disabled = faceControlsLocked;
-    ref.faceScale.disabled = !slidersEnabled;
-    ref.photoScale.disabled = !slidersEnabled;
-    ref.characterScale.disabled = false;
-    ref.faceX.disabled = !slidersEnabled;
-    ref.faceY.disabled = !slidersEnabled;
-    ref.faceReset.disabled = !setup.faceEnabled && !setup.faceUrl;
+    ref.name.textContent = getDisplayName(setup);
+    if (ref.ability) ref.ability.textContent = getDisplayAbility(setup);
+    ref.preview.innerHTML = createAvatarMarkup({ characterId: previewId }, `${slot + 1}P`, false, "preview");
+
+    const choices = [...PUBLIC_CHARACTER_LIST, RANDOM_CHARACTER_OPTION];
+    ref.options.innerHTML = choices
+      .map((item) => createCharacterOptionMarkup(item, slot, item.id === previewId))
+      .join("");
 
     ref.options.querySelectorAll(".character-option").forEach((option) => {
       option.addEventListener("click", () => {
-        state.setup[slot].characterId = option.dataset.characterId;
+        applySetupChoice(state.setup[slot], option.dataset.characterId);
         renderSetupUI();
         updateHud();
         noteConfigChange();
@@ -1311,29 +1424,16 @@ function renderSetupUI() {
 
 function updateHudVisibility() {
   hudCards.forEach((card, slot) => {
+    if (!card) return;
     card.classList.toggle("is-hidden", slot >= state.playerCount);
   });
 }
 
 function noteConfigChange() {
-  if (!state.running) {
-    setStatus("캐릭터 설정을 마쳤다면 시작 버튼을 눌러주세요.");
-    return;
-  }
-
-  setStatus("설정이 바뀌었어요. 다시 시작하면 바로 반영됩니다.");
+  setStatus(state.running ? "다시 시작하면 반영돼요." : "골랐으면 시작!");
 }
 
-function setPlayerCount(count) {
-  state.playerCount = count;
-  if (count === 1) {
-    releaseTouchForSlot(1);
-    state.playerTouchDirections[1] = 0;
-  }
-  renderSetupUI();
-  updateHud();
-  noteConfigChange();
-}
+// 모바일 1인 플레이가 메인 환경. 2P 모드는 더 이상 사용하지 않는다.
 
 function releaseTouchForSlot(slot) {
   for (const [pointerId, assignedSlot] of state.touchAssignments.entries()) {
@@ -1438,14 +1538,120 @@ function spawnBoost(platform) {
   });
 }
 
+// 몬스터: 화면 한쪽 가장자리 바깥에서 등장 → 천천히 가로지름 → 반대편으로 사라짐
+function spawnEdgeMonster() {
+  const size = settings.monsterSize;
+  const direction = Math.random() < 0.5 ? -1 : 1;
+  const x = direction === 1 ? -size : settings.worldWidth;
+  // 보이는 윗 영역 (화면 위 0.15 ~ 0.55 구간)
+  const arenaH = arena.clientHeight || 600;
+  const y = state.cameraY + (0.15 + Math.random() * 0.4) * arenaH;
+  const kind = Math.random() < 0.55 ? "cloud_imp" : "fluff_ghost";
+  const el = document.createElement("div");
+  el.className = `monster monster--${kind}`;
+  worldEl.appendChild(el);
+  state.monsters.push({
+    x,
+    y,
+    vx: direction * settings.monsterSpeed,
+    size,
+    kind,
+    el,
+    direction,
+    spawnY: y,
+    spawnTimeMs: performance.now(),
+  });
+}
+
+function updateMonsters() {
+  const now = performance.now();
+  const arenaH = arena.clientHeight || 600;
+  state.monsters = state.monsters.filter((m) => {
+    m.x += m.vx;
+    m.y = m.spawnY + Math.sin((now - m.spawnTimeMs) * 0.0012) * settings.monsterBobAmplitude;
+
+    // 반대편으로 빠져나가면 제거
+    const exitedRight = m.direction === 1 && m.x > settings.worldWidth + 8;
+    const exitedLeft = m.direction === -1 && m.x + m.size < -8;
+    // 카메라가 위로 많이 올라가면 시야 밖 (화면 아래)도 정리
+    const fellBehind = m.y > state.cameraY + arenaH + 200;
+    if (exitedRight || exitedLeft || fellBehind) {
+      m.el.remove();
+      return false;
+    }
+    return true;
+  });
+
+  // 스폰 타이머 — 살아있는 플레이어가 있을 때만
+  if (state.players.some((p) => p.alive) && now >= state.nextMonsterSpawnAt) {
+    spawnEdgeMonster();
+    state.nextMonsterSpawnAt = now + random(settings.monsterSpawnIntervalMinMs, settings.monsterSpawnIntervalMaxMs);
+  }
+}
+
+function spawnSparkles(worldCx, worldCy, kind) {
+  for (let i = 0; i < 6; i += 1) {
+    const sparkle = document.createElement("div");
+    sparkle.className = `boost-sparkle boost-sparkle--${kind}`;
+    const offsetX = (Math.random() - 0.5) * 60;
+    const offsetY = -10 - Math.random() * 50;
+    sparkle.style.setProperty("--sparkle-x", `${offsetX}px`);
+    sparkle.style.setProperty("--sparkle-y", `${offsetY}px`);
+    sparkle.style.left = `${worldCx}px`;
+    sparkle.style.top = `${worldCy}px`;
+    sparkle.style.transform = `translate(-50%, -50%)`;
+    worldEl.appendChild(sparkle);
+    setTimeout(() => sparkle.remove(), 700);
+  }
+}
+
+function triggerNetworkBoostFx(entry, kind = "boost") {
+  if (!entry || !entry.avatarEl) return;
+  const fxClass = kind === "super" ? "is-super-boosting" : "is-boosting";
+  entry.avatarEl.classList.add(fxClass);
+  setTimeout(() => entry.avatarEl?.classList.remove(fxClass), 1100);
+
+  arena.classList.add(kind === "super" ? "arena-flash--super" : "arena-flash--boost");
+  setTimeout(() => {
+    arena.classList.remove("arena-flash--boost", "arena-flash--super");
+  }, 360);
+
+  const latest = entry.latest;
+  if (latest) {
+    spawnSparkles(latest.x + latest.width / 2, latest.y + latest.height / 2, kind);
+  }
+}
+
+// 부스트 픽업/슈퍼점프 시각효과 — 캐릭터 본체에 발광 + 화면 가장자리 플래시 + 스파클.
+function triggerBoostFx(player, kind = "boost") {
+  if (!player || !player.avatarEl) return;
+  const avatar = player.avatarEl;
+  const fxClass = kind === "super" ? "is-super-boosting" : "is-boosting";
+  avatar.classList.add(fxClass);
+  setTimeout(() => avatar.classList.remove(fxClass), 1100);
+
+  arena.classList.add(kind === "super" ? "arena-flash--super" : "arena-flash--boost");
+  setTimeout(() => {
+    arena.classList.remove("arena-flash--boost", "arena-flash--super");
+  }, 360);
+
+  spawnSparkles(player.x + player.width / 2, player.y + player.height / 2, kind);
+}
+
+const EFFECT_SPECS = {
+  land:   { w: 148, h: 72,  yOffsetMul: 0.56, lifeMs: 520 },
+  burst:  { w: 184, h: 184, yOffsetMul: 0.5,  lifeMs: 620 },
+  jump:   { w: 96,  h: 96,  yOffsetMul: 0.5,  lifeMs: 420 },
+  boost:  { w: 96,  h: 96,  yOffsetMul: 0.5,  lifeMs: 420 },
+  pickup: { w: 96,  h: 96,  yOffsetMul: 0.5,  lifeMs: 420 },
+};
+
 function spawnEffect(kind, worldX, worldY) {
+  const spec = EFFECT_SPECS[kind] || EFFECT_SPECS.jump;
   const el = document.createElement("div");
   el.className = `effect effect--${kind}`;
-  const isLand = kind === "land";
-  const w = isLand ? 148 : 96;
-  const h = isLand ? 72 : 96;
-  const tx = worldX - w / 2;
-  const tyBase = isLand ? worldY - h * 0.56 : worldY - h / 2;
+  const tx = worldX - spec.w / 2;
+  const tyBase = worldY - spec.h * spec.yOffsetMul;
 
   const effectObj = { el, tx, tyBase };
   state.effects.push(effectObj);
@@ -1457,7 +1663,7 @@ function spawnEffect(kind, worldX, worldY) {
   setTimeout(() => {
     el.remove();
     state.effects = state.effects.filter((e) => e !== effectObj);
-  }, isLand ? 520 : 420);
+  }, spec.lifeMs);
 }
 
 function clearWorld() {
@@ -1466,6 +1672,7 @@ function clearWorld() {
   state.players = [];
   state.platforms = [];
   state.boosts = [];
+  state.monsters = [];
   state.effects = [];
   state.touchAssignments.clear();
   state.playerTouchDirections = [0, 0];
@@ -1496,6 +1703,7 @@ function createPlayer(slot) {
   const localLabel = slot === 0
     ? getAvatarLabel(gameBoot?.name, `${slot + 1}P`)
     : `${slot + 1}P`;
+  const abilities = getAbilities(state.setup[slot].characterId);
   el.innerHTML = createAvatarMarkup(state.setup[slot], localLabel, false, "jump_neutral");
   worldEl.appendChild(el);
 
@@ -1506,9 +1714,10 @@ function createPlayer(slot) {
     width: 46,
     height: 46,
     vx: 0,
-    vy: settings.normalJump,
+    vy: settings.normalJump * abilities.jumpMul,
     bestHeight: 0,
     alive: true,
+    jumpCount: 0,
     el,
     avatarEl: el.querySelector(".avatar"),
     spriteEl: el.querySelector(".avatar__sprite"),
@@ -1529,7 +1738,8 @@ function ensurePlatformsAbove() {
   while (Math.min(...state.platforms.map((platform) => platform.y)) > state.cameraY - 1500) {
     const topmost = getTopmostPlatform();
     const newTop = topmost.y - settings.platformGap;
-    state.platforms.push(createPlatform(newTop, false, topmost));
+    const platform = createPlatform(newTop, false, topmost);
+    state.platforms.push(platform);
   }
 
   const cleanupLimit = state.cameraY + arena.clientHeight + 180;
@@ -1548,6 +1758,7 @@ function ensurePlatformsAbove() {
     }
     return true;
   });
+  // 몬스터는 cross-screen 흐름이라 별도 cleanup 함수에서 처리 (updateMonsters)
 }
 
 function intersects(a, b) {
@@ -1566,16 +1777,29 @@ function handleLanding(player, previousY) {
   const feetBefore = previousY + player.height;
 
   for (const platform of state.platforms) {
-    const horizontalHit = player.x + player.width > platform.x && player.x < platform.x + platform.width;
+    const inset = platform.width * 0.08;
+    const hitX = platform.x + inset;
+    const hitW = platform.width - inset * 2;
+    const horizontalHit = player.x + player.width > hitX && player.x < hitX + hitW;
     const passedTop = feetBefore <= platform.y && feetNow >= platform.y;
 
     if (horizontalHit && passedTop) {
+      const abilities = getAbilities(state.setup[player.slot].characterId);
       player.y = platform.y - player.height;
-      player.vy = settings.normalJump;
-      spawnEffect("land", player.x + player.width / 2, platform.y + 6);
-      spawnEffect("jump", player.x + player.width / 2, platform.y);
+      player.jumpCount = (player.jumpCount || 0) + 1;
+      const isSuperJump =
+        abilities.superJumpEvery > 0 &&
+        player.jumpCount % abilities.superJumpEvery === 0;
+      player.vy = isSuperJump ? settings.boostJump : settings.normalJump * abilities.jumpMul;
+      const cx = player.x + player.width / 2;
+      spawnEffect("land", cx, platform.y + 6);
+      spawnEffect("jump", cx, platform.y);
       playLandSound();
       playJumpSound();
+      if (isSuperJump) {
+        spawnEffect("burst", cx, player.y + player.height / 2);
+        triggerBoostFx(player, "super");
+      }
       return;
     }
   }
@@ -1585,16 +1809,20 @@ function handleBoostPickup(player) {
   if (!player.alive) return;
 
   const playerBox = { x: player.x, y: player.y, width: player.width, height: player.height };
+  const abilities = getAbilities(state.setup[player.slot].characterId);
 
   state.boosts = state.boosts.filter((boost) => {
     const boostBox = { x: boost.x, y: boost.y, width: boost.size, height: boost.size };
     const picked = intersects(playerBox, boostBox);
 
     if (picked) {
-      player.vy = settings.boostJump;
-      spawnEffect("boost", boost.x + boost.size / 2, boost.y + boost.size / 2);
-      spawnEffect("pickup", boost.x + boost.size / 2, boost.y);
+      player.vy = settings.boostJump * abilities.boostMul;
+      const bcx = boost.x + boost.size / 2;
+      spawnEffect("boost", bcx, boost.y + boost.size / 2);
+      spawnEffect("pickup", bcx, boost.y);
+      spawnEffect("burst", bcx, boost.y + boost.size / 2);
       playBoostSound();
+      triggerBoostFx(player, "boost");
       setStatus(`${slotLabel(player.slot)} ${BOOST_META[boost.kind].message}!`);
       boost.el.remove();
       return false;
@@ -1602,6 +1830,72 @@ function handleBoostPickup(player) {
 
     return true;
   });
+}
+
+// 몬스터 hitbox: 가로 22% 인셋(본체 비율), 세로 22%~60% 구간. 위 안착, 아래 머리 박힘은
+// vy=0으로 제자리 낙하, 옆은 수평 MTV. 시각 PNG의 본체 영역에 맞춤.
+function resolveSoloMonsterCollisions(player, previousY) {
+  if (!player.alive || state.monsters.length === 0) return;
+  const sizeInsetX = settings.monsterSize * 0.22;
+  const topInset = settings.monsterSize * 0.22;
+  const bodyHeight = settings.monsterSize * 0.38;
+
+  for (const m of state.monsters) {
+    const hitX = m.x + sizeInsetX;
+    const hitW = m.size - sizeInsetX * 2;
+    const hitTop = m.y + topInset;
+    const hitBottom = hitTop + bodyHeight;
+
+    const horizontalHit = player.x + player.width > hitX && player.x < hitX + hitW;
+    if (!horizontalHit) continue;
+
+    // 위에서 떨어져 hitTop 통과 → 발판처럼 안착 + 점프
+    if (player.vy > 0) {
+      const feetNow = player.y + player.height;
+      const feetBefore = previousY + player.height;
+      if (feetBefore <= hitTop && feetNow >= hitTop) {
+        const abilities = getAbilities(state.setup[player.slot].characterId);
+        player.y = hitTop - player.height;
+        player.jumpCount = (player.jumpCount || 0) + 1;
+        const isSuperJump =
+          abilities.superJumpEvery > 0 &&
+          player.jumpCount % abilities.superJumpEvery === 0;
+        player.vy = isSuperJump ? settings.boostJump : settings.normalJump * abilities.jumpMul;
+        const cx = player.x + player.width / 2;
+        spawnEffect("land", cx, hitTop + 6);
+        spawnEffect("jump", cx, hitTop);
+        playLandSound();
+        playJumpSound();
+        if (isSuperJump) {
+          spawnEffect("burst", cx, player.y + player.height / 2);
+          triggerBoostFx(player, "super");
+        }
+        continue;
+      }
+    }
+
+    // 아래에서 머리 박힘 — 옆으로 밀지 않고 제자리에서 vy=0으로 떨어뜨림
+    if (player.vy < 0) {
+      const headNow = player.y;
+      const headBefore = previousY;
+      if (headBefore >= hitBottom && headNow <= hitBottom) {
+        player.y = hitBottom;
+        player.vy = 0;
+        continue;
+      }
+    }
+
+    // 옆 박힘 — MTV 수평 push
+    const overlapY = Math.min(player.y + player.height, hitBottom) - Math.max(player.y, hitTop);
+    if (overlapY <= 0) continue;
+    const overlapX = Math.min(player.x + player.width, hitX + hitW) - Math.max(player.x, hitX);
+    if (overlapX <= 0) continue;
+    const playerCenter = player.x + player.width / 2;
+    const monsterCenter = m.x + m.size / 2;
+    if (playerCenter < monsterCenter) player.x -= overlapX;
+    else player.x += overlapX;
+    player.x = clamp(player.x, 0, settings.worldWidth - player.width);
+  }
 }
 
 function updateBestHeight(player) {
@@ -1631,8 +1925,9 @@ function eliminatePlayer(player) {
 function applyInput(player) {
   if (!player.alive) return;
 
+  const abilities = getAbilities(state.setup[player.slot].characterId);
   const direction = getPlayerDirection(player.slot);
-  player.vx = direction * settings.moveSpeed;
+  player.vx = direction * settings.moveSpeed * abilities.moveMul;
   player.x += player.vx;
   player.x = clamp(player.x, 0, settings.worldWidth - player.width);
 }
@@ -1641,13 +1936,16 @@ function updatePlayers() {
   state.players.forEach((player) => {
     if (!player.alive) return;
 
+    const abilities = getAbilities(state.setup[player.slot].characterId);
+
     applyInput(player);
     const previousY = player.y;
-    player.vy += settings.gravity;
+    player.vy += settings.gravity * abilities.gravityMul;
     player.y += player.vy;
 
     handleLanding(player, previousY);
     handleBoostPickup(player);
+    resolveSoloMonsterCollisions(player, previousY);
     updateBestHeight(player);
 
     if (player.y > state.cameraY + arena.clientHeight + 140) {
@@ -1661,7 +1959,10 @@ function updateCamera() {
   if (alivePlayers.length === 0) return;
 
   const lowestVisiblePlayerY = Math.max(...alivePlayers.map((player) => player.y));
-  const target = Math.min(state.cameraY, lowestVisiblePlayerY - arena.clientHeight * 0.78);
+  // viewport 높이의 절반을 따라가되, PC가 너무 길어지지 않도록 360px에서 캡.
+  // (이전 0.78은 PC에서 카메라가 너무 위 → 320 고정은 작은 모바일 가로에서 답답 → 균형점)
+  const cameraOffset = Math.min(arena.clientHeight * 0.5, 360);
+  const target = Math.min(state.cameraY, lowestVisiblePlayerY - cameraOffset);
   state.cameraY += (target - state.cameraY) * 0.16;
 }
 
@@ -1703,6 +2004,10 @@ function render() {
     boost.el.style.transform = formatWorldTranslate(boost.x, boost.y - state.cameraY);
   });
 
+  state.monsters.forEach((m) => {
+    m.el.style.transform = formatWorldTranslate(m.x, m.y - state.cameraY);
+  });
+
   state.players.forEach((player) => {
     updatePlayerVisualState(player);
     player.el.style.transform = formatWorldTranslate(player.x, player.y - state.cameraY);
@@ -1714,23 +2019,17 @@ function render() {
 }
 
 function updateHud() {
-  for (let slot = 0; slot < 2; slot += 1) {
+  for (let slot = 0; slot < hudCards.length; slot += 1) {
+    if (!hudCards[slot]) continue;
     const player = state.players.find((entry) => entry.slot === slot);
     const active = slot < state.playerCount;
 
     hudCards[slot].classList.toggle("is-hidden", !active);
-    bestEls[slot].textContent = player ? `${player.bestHeight}m` : "0m";
+    if (bestEls[slot]) bestEls[slot].textContent = player ? `${player.bestHeight}m` : "0m";
 
-    if (!active) {
-      lifeEls[slot].textContent = "대기";
-      continue;
-    }
-
-    if (!player) {
-      lifeEls[slot].textContent = "준비";
-      continue;
-    }
-
+    if (!lifeEls[slot]) continue;
+    if (!active) { lifeEls[slot].textContent = "대기"; continue; }
+    if (!player) { lifeEls[slot].textContent = "준비"; continue; }
     lifeEls[slot].textContent = player.alive ? "생존" : "탈락";
   }
 }
@@ -1740,6 +2039,7 @@ function loop() {
 
   ensurePlatformsAbove();
   updatePlatformMotionLocal();
+  updateMonsters();
   updatePlayers();
   updateCamera();
   render();
@@ -1750,25 +2050,64 @@ function loop() {
   }
 }
 
+function showCharacterIntro() {
+  return new Promise((resolve) => {
+    if (!characterIntroEl) { resolve(); return; }
+    const setup = state.setup[0];
+    const character = getCharacter(setup.characterId);
+    introCharImgEl.src = getSpriteSrc(character, "preview");
+    introCharImgEl.alt = character.name;
+    introCharNameEl.textContent = character.name;
+    introCharAbilityEl.textContent = character.abilityText || "";
+
+    characterIntroEl.classList.remove("is-hidden", "is-fading");
+    // reflow → fade in
+    void characterIntroEl.offsetWidth;
+    characterIntroEl.classList.add("is-active");
+
+    // 인트로 등장 시 사운드도 살짝
+    playBoostSound();
+
+    setTimeout(() => {
+      characterIntroEl.classList.add("is-fading");
+      setTimeout(() => {
+        characterIntroEl.classList.remove("is-active", "is-fading");
+        characterIntroEl.classList.add("is-hidden");
+        resolve();
+      }, 320);
+    }, 2250);
+  });
+}
+
 function startGame() {
   ensureAudioUnlocked();
-  if (isRoomSession) {
-    hideResultsOverlay();
-    showScreen("play");
-    requestAnimationFrame(() => applyArenaScale(true));
-    connectNetworkGame();
-    return;
-  }
+  state.setup.forEach((s) => {
+    if (s.selectedId === "random") {
+      s.characterId = pickRandomCharacterId();
+    }
+  });
 
-  resetWorld();
   hideResultsOverlay();
   showScreen("play");
+  requestAnimationFrame(() => applyArenaScale(true));
 
+  showCharacterIntro().then(() => {
+    if (isRoomSession) {
+      connectNetworkGame();
+    } else {
+      runSoloGame();
+    }
+  });
+}
+
+function runSoloGame() {
+  resetWorld();
   state.cameraY = 0;
   state.running = true;
   state.players = [];
   state.keys.clear();
   state.resultSubmitted = false;
+  state.nextMonsterSpawnAt = performance.now() + settings.monsterFirstSpawnDelayMs;
 
   for (let slot = 0; slot < state.playerCount; slot += 1) {
     state.players.push(createPlayer(slot));
@@ -1777,11 +2116,7 @@ function startGame() {
   updateHud();
   applyArenaScale(true);
   render();
-  setStatus(
-    state.playerCount === 2
-      ? "두 명 모두 출발! 낮은 플레이어 기준으로 화면이 움직입니다."
-      : "화면 왼쪽과 오른쪽을 눌러 점프 경로를 잡아보세요."
-  );
+  setStatus("화면 좌우를 눌러 점프!");
   state.rafId = requestAnimationFrame(loop);
 }
 
@@ -1811,18 +2146,11 @@ function configureSessionMode() {
 
   state.playerCount = 1;
   setupHintEl.innerHTML =
-    "방 플레이에서는 <strong>각 기기마다 캐릭터 1명</strong>을 맡아 같은 맵에서 동시에 점프합니다. " +
-    "<strong>A / D</strong> 또는 화면 좌우 터치로 움직이고, 캐릭터와 얼굴을 고른 뒤 방 합류를 누르세요.";
-
-  const twoPlayerButton = playerCountButtons.find((button) => Number(button.dataset.playerCount) === 2);
-  if (twoPlayerButton) {
-    twoPlayerButton.disabled = true;
-    twoPlayerButton.title = "방 플레이에서는 기기당 캐릭터 1명으로 같은 맵에 합류합니다.";
-  }
+    "방에서는 같은 맵에서 동시에 점프! 화면 좌우 터치로 움직여요. <strong>🎲 랜덤</strong>은 숨겨진 친구도 추첨!";
 
   startButton.textContent = "방 합류";
   restartButton.hidden = true;
-  backToSetupButton.textContent = "대기실로";
+  backToSetupButton.textContent = "대기실";
 }
 
 function updatePointerDirection(slot, clientX) {
@@ -1880,73 +2208,6 @@ function clearPointer(event) {
 }
 
 function bindSetupEvents() {
-  playerCountButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      setPlayerCount(Number(button.dataset.playerCount));
-    });
-  });
-
-  configRefs.forEach((ref, slot) => {
-    ref.faceEnabled.addEventListener("change", () => {
-      state.setup[slot].faceEnabled = ref.faceEnabled.checked;
-      renderSetupUI();
-      noteConfigChange();
-    });
-
-    ref.faceUpload.addEventListener("change", () => {
-      const file = ref.faceUpload.files && ref.faceUpload.files[0];
-      if (!file) return;
-
-      if (state.setup[slot].faceUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(state.setup[slot].faceUrl);
-      }
-
-      state.setup[slot].faceUrl = URL.createObjectURL(file);
-      state.setup[slot].faceEnabled = true;
-      renderSetupUI();
-      noteConfigChange();
-    });
-
-    ref.faceScale.addEventListener("input", () => {
-      state.setup[slot].faceTransform.scale = Number(ref.faceScale.value) / 100;
-      renderSetupUI();
-      noteConfigChange();
-    });
-
-    ref.photoScale.addEventListener("input", () => {
-      state.setup[slot].photoScale = Number(ref.photoScale.value) / 100;
-      renderSetupUI();
-      noteConfigChange();
-    });
-
-    ref.characterScale.addEventListener("input", () => {
-      state.setup[slot].characterScale = Number(ref.characterScale.value) / 100;
-      renderSetupUI();
-      noteConfigChange();
-    });
-
-    ref.faceX.addEventListener("input", () => {
-      state.setup[slot].faceTransform.x = Number(ref.faceX.value);
-      renderSetupUI();
-      noteConfigChange();
-    });
-
-    ref.faceY.addEventListener("input", () => {
-      state.setup[slot].faceTransform.y = Number(ref.faceY.value);
-      renderSetupUI();
-      noteConfigChange();
-    });
-
-    ref.faceReset.addEventListener("click", () => {
-      state.setup[slot].faceEnabled = false;
-      state.setup[slot].faceTransform = { scale: 1, x: 0, y: 0 };
-      state.setup[slot].photoScale = 1;
-      state.setup[slot].characterScale = 1;
-      renderSetupUI();
-      noteConfigChange();
-    });
-  });
-
   startButton.addEventListener("click", startGame);
   restartButton.addEventListener("click", () => {
     if (isRoomSession) {
@@ -1982,6 +2243,14 @@ function bindSetupEvents() {
   arena.addEventListener("pointermove", handlePointerMove);
   arena.addEventListener("pointerup", clearPointer);
   arena.addEventListener("pointercancel", clearPointer);
+
+  // 모바일 길게 누름 시 다운로드/공유/인쇄 컨텍스트 메뉴 차단 (채팅 입력은 영향 없음)
+  const blockContextMenu = (event) => {
+    if (isTypingTarget(event.target)) return;
+    event.preventDefault();
+  };
+  arena.addEventListener("contextmenu", blockContextMenu);
+  setupScreen.addEventListener("contextmenu", blockContextMenu);
 }
 
 function bindKeyboardEvents() {
@@ -2047,8 +2316,4 @@ window.addEventListener("resize", () => applyArenaScale(true));
 renderSetupUI();
 updateHud();
 showScreen("setup");
-setStatus(
-  isRoomSession
-    ? "캐릭터를 고르고 방 합류를 누르면 같은 맵에서 함께 시작합니다."
-    : "캐릭터를 고르고 게임 시작을 누르면 바로 플레이 화면으로 넘어갑니다."
-);
+setStatus(isRoomSession ? "캐릭터 고르고 방 합류!" : "캐릭터 고르고 시작!");

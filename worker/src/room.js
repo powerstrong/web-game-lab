@@ -5,8 +5,8 @@ const COLORS = [
 
 // Keep in sync with /games/registry.js (browser can't import that file here)
 const GAME_PATHS = {
-  'jump-climber':     '/prototypes/jump-climber/index.html',
-  'mallang-rescue':   '/prototypes/mallang-rescue/index.html',
+  'jump-climber': '/prototypes/jump-climber/index.html',
+  'mallang-tap':  '/prototypes/mallang-tap/index.html',
 };
 
 function randomHex(len) {
@@ -44,9 +44,42 @@ const JUMP_GAME_SETTINGS = {
   pathRequiredShiftMax: 85,
   platformWidthMinLate: 74,
   platformWidthMaxLate: 122,
+  monsterSize: 280,
+  monsterSpeed: 1.05,
+  monsterSpawnIntervalMinMs: 5000,
+  monsterSpawnIntervalMaxMs: 9500,
+  monsterFirstSpawnDelayMs: 3000,
+  monsterBobAmplitude: 14,
 };
 
 const PLATFORM_KINDS = ['leaf', 'cloud', 'cake'];
+
+// 모든 캐릭터 ID와 특성. 신규 2종(latte-puppy, mint-kitten)은 클라 UI에선 랜덤으로만 등장.
+const JUMP_CHARACTERS = [
+  'mochi-rabbit',
+  'pudding-hamster',
+  'peach-chick',
+  'latte-puppy',
+  'mint-kitten',
+];
+
+const JUMP_CHARACTER_ABILITIES = {
+  'mochi-rabbit':    { jumpMul: 1.06, gravityMul: 1.00, moveMul: 1.00, boostMul: 1.00, superJumpEvery: 0 },
+  'pudding-hamster': { jumpMul: 1.00, gravityMul: 1.00, moveMul: 1.18, boostMul: 1.00, superJumpEvery: 0 },
+  'peach-chick':     { jumpMul: 1.00, gravityMul: 0.85, moveMul: 1.00, boostMul: 1.00, superJumpEvery: 0 },
+  'latte-puppy':     { jumpMul: 1.00, gravityMul: 1.00, moveMul: 1.00, boostMul: 1.00, superJumpEvery: 3 },
+  'mint-kitten':     { jumpMul: 1.00, gravityMul: 1.00, moveMul: 1.00, boostMul: 1.50, superJumpEvery: 0 },
+};
+
+const JUMP_DEFAULT_ABILITIES = JUMP_CHARACTER_ABILITIES['mochi-rabbit'];
+
+function getJumpAbilities(characterId) {
+  return JUMP_CHARACTER_ABILITIES[characterId] || JUMP_DEFAULT_ABILITIES;
+}
+
+function sanitizeJumpCharacterId(characterId, fallback = 'mochi-rabbit') {
+  return JUMP_CHARACTERS.includes(characterId) ? characterId : fallback;
+}
 const JUMP_PROTOCOL_VERSION = 'jump/v1';
 const JUMP_BASE_STEP_MS = 1000 / 60;
 const JUMP_SESSION_LIMITS = {
@@ -107,6 +140,31 @@ const RESCUE_FALLERS = [
   { id: 'chick', name: '병아리', icon: '🐥', speed: 0.030, weight: 'light', baseScore: 80 },
   { id: 'rabbit', name: '토끼', icon: '🐰', speed: 0.042, weight: 'normal', baseScore: 100 },
   { id: 'hamster', name: '햄스터', icon: '🐹', speed: 0.056, weight: 'heavy', baseScore: 150 },
+];
+
+const TAP_CONFIG = {
+  durationMs: 30000,
+  tickMs: 200,
+  feverThresholdMs: 10000,
+  normalSpawnIntervalMs: 550,
+  feverSpawnIntervalMs: 360,
+  maxTargetsNormal: 6,
+  maxTargetsFever: 9,
+  bonusRatioNormal: 0.20,
+  bonusRatioFever: 0.35,
+  targetLifeMs: 2500,
+  bonusTargetLifeMs: 3500,
+};
+
+const TAP_PERSONAL_TYPES = [
+  { id: 'chick',   icon: '🐥', score: 50  },
+  { id: 'rabbit',  icon: '🐰', score: 80  },
+  { id: 'hamster', icon: '🐹', score: 120 },
+];
+
+const TAP_BONUS_TYPES = [
+  { id: 'star', icon: '⭐', score: 200 },
+  { id: 'gem',  icon: '💎', score: 250 },
 ];
 
 function factoryMakeWorkbench(id) {
@@ -195,6 +253,8 @@ export class GameRoom {
     this.factoryLoop = null;
     this.rescueGame = null;
     this.rescueLoop = null;
+    this.tapGame = null;
+    this.tapLoop = null;
   }
 
   // Returns [{ws, player}] for all connected, registered players
@@ -258,12 +318,14 @@ export class GameRoom {
 
   _createJumpPlayer(rosterPlayer, slot, totalPlayers, previous = null) {
     const positions = totalPlayers === 1 ? [228] : [155, 300];
+    const characterId = sanitizeJumpCharacterId(previous?.characterId || 'mochi-rabbit');
+    const abilities = getJumpAbilities(characterId);
     return {
       id: rosterPlayer.id,
       name: rosterPlayer.name,
       slot,
       colorIndex: rosterPlayer.colorIndex,
-      characterId: previous?.characterId || 'mochi-rabbit',
+      characterId,
       connected: previous?.connected || false,
       inputDirection: 0,
       x: positions[slot] ?? 228,
@@ -271,9 +333,12 @@ export class GameRoom {
       width: 46,
       height: 46,
       vx: 0,
-      vy: JUMP_GAME_SETTINGS.normalJump,
+      vy: JUMP_GAME_SETTINGS.normalJump * abilities.jumpMul,
       bestHeight: 0,
       alive: true,
+      jumpCount: 0,
+      bounceTag: 0,        // 클라 픽업/슈퍼점프 이펙트 트리거 (단조 증가, wraparound 256)
+      lastBounceKind: null, // 'normal' | 'super' | 'boost'
     };
   }
 
@@ -353,10 +418,13 @@ export class GameRoom {
       players: {},
       platforms: [],
       boosts: [],
+      monsters: [],
       cameraY: 0,
       elapsedMs: 0,
       nextPlatformId: 1,
       nextBoostId: 1,
+      nextMonsterId: 1,
+      nextMonsterSpawnAtMs: JUMP_GAME_SETTINGS.monsterFirstSpawnDelayMs,
       messageSeq: 0,
       running: false,
       worldDirty: true,
@@ -377,9 +445,12 @@ export class GameRoom {
     const roster = this.jumpGame.roster;
     this.jumpGame.platforms = [];
     this.jumpGame.boosts = [];
+    this.jumpGame.monsters = [];
     this.jumpGame.cameraY = 0;
     this.jumpGame.nextPlatformId = 1;
     this.jumpGame.nextBoostId = 1;
+    this.jumpGame.nextMonsterId = 1;
+    this.jumpGame.nextMonsterSpawnAtMs = JUMP_GAME_SETTINGS.monsterFirstSpawnDelayMs;
     this.jumpGame.elapsedMs = 0;
     this.jumpGame.messageSeq = 0;
     this.jumpGame.players = {};
@@ -427,6 +498,18 @@ export class GameRoom {
     return { ...boost };
   }
 
+  _serializeJumpMonster(monster) {
+    return {
+      id: monster.id,
+      kind: monster.kind,
+      x: monster.x,
+      y: monster.y,
+      size: monster.size,
+      vx: monster.vx,
+      vy: monster.vy,
+    };
+  }
+
   _buildJumpStateMessage(type, { includeWorld = false } = {}) {
     if (!this.jumpGame) return null;
     const shouldIncludeWorld = type === 'jump_init' || includeWorld;
@@ -442,6 +525,7 @@ export class GameRoom {
       cameraY: this.jumpGame.cameraY,
       elapsedMs: this.jumpGame.elapsedMs,
       players: this.jumpGame.roster.map(({ id }) => ({ ...this.jumpGame.players[id] })),
+      monsters: this.jumpGame.monsters.map((m) => this._serializeJumpMonster(m)),
     };
 
     if (shouldIncludeWorld) {
@@ -512,22 +596,26 @@ export class GameRoom {
     let worldChanged = false;
     const previousPlatformCount = this.jumpGame.platforms.length;
     const previousBoostCount = this.jumpGame.boosts.length;
+    const previousMonsterCount = this.jumpGame.monsters.length;
 
     while (Math.min(...this.jumpGame.platforms.map((platform) => platform.y)) > this.jumpGame.cameraY - 1500) {
       const topmost = this._getTopmostJumpPlatform();
       const newTop = topmost.y - JUMP_GAME_SETTINGS.platformGap;
-      this.jumpGame.platforms.push(this._createJumpPlatform(this.jumpGame, newTop, false, topmost));
+      const platform = this._createJumpPlatform(this.jumpGame, newTop, false, topmost);
+      this.jumpGame.platforms.push(platform);
       worldChanged = true;
     }
 
     const cleanupLimit = this.jumpGame.cameraY + JUMP_GAME_SETTINGS.arenaHeight + 180;
     this.jumpGame.platforms = this.jumpGame.platforms.filter((platform) => platform.y <= cleanupLimit);
     this.jumpGame.boosts = this.jumpGame.boosts.filter((boost) => boost.y <= cleanupLimit);
+    // 몬스터는 cross-screen 흐름이라 _tickJumpMonsters에서 자체 cleanup
 
     if (
       worldChanged ||
       this.jumpGame.platforms.length !== previousPlatformCount ||
-      this.jumpGame.boosts.length !== previousBoostCount
+      this.jumpGame.boosts.length !== previousBoostCount ||
+      this.jumpGame.monsters.length !== previousMonsterCount
     ) {
       this.jumpGame.worldDirty = true;
     }
@@ -540,12 +628,25 @@ export class GameRoom {
     const feetBefore = previousY + player.height;
 
     for (const platform of this.jumpGame.platforms) {
-      const horizontalHit = player.x + player.width > platform.x && player.x < platform.x + platform.width;
+      // 발판 PNG는 좌우에 투명 여백이 있어서 시각보다 hitbox가 더 넓음. 8% 인셋.
+      const inset = platform.width * 0.08;
+      const hitX = platform.x + inset;
+      const hitW = platform.width - inset * 2;
+      const horizontalHit = player.x + player.width > hitX && player.x < hitX + hitW;
       const passedTop = feetBefore <= platform.y && feetNow >= platform.y;
 
       if (horizontalHit && passedTop) {
+        const abilities = getJumpAbilities(player.characterId);
         player.y = platform.y - player.height;
-        player.vy = JUMP_GAME_SETTINGS.normalJump;
+        player.jumpCount = (player.jumpCount || 0) + 1;
+        const isSuperJump =
+          abilities.superJumpEvery > 0 &&
+          player.jumpCount % abilities.superJumpEvery === 0;
+        player.vy = isSuperJump
+          ? JUMP_GAME_SETTINGS.boostJump
+          : JUMP_GAME_SETTINGS.normalJump * abilities.jumpMul;
+        player.lastBounceKind = isSuperJump ? 'super' : 'normal';
+        player.bounceTag = ((player.bounceTag || 0) + 1) & 0xff;
         return;
       }
     }
@@ -564,7 +665,10 @@ export class GameRoom {
       );
 
       if (intersects) {
-        player.vy = JUMP_GAME_SETTINGS.boostJump;
+        const abilities = getJumpAbilities(player.characterId);
+        player.vy = JUMP_GAME_SETTINGS.boostJump * abilities.boostMul;
+        player.lastBounceKind = 'boost';
+        player.bounceTag = ((player.bounceTag || 0) + 1) & 0xff;
         pickedBoost = true;
         return false;
       }
@@ -574,6 +678,122 @@ export class GameRoom {
 
     if (pickedBoost) {
       this.jumpGame.worldDirty = true;
+    }
+  }
+
+  // ── 몬스터: 화면 한쪽 가장자리 바깥에서 등장 → 천천히 가로지름 → 반대편으로 사라짐 ──
+  _spawnEdgeMonster(game) {
+    const size = JUMP_GAME_SETTINGS.monsterSize;
+    const direction = Math.random() < 0.5 ? -1 : 1;
+    const x = direction === 1 ? -size : JUMP_GAME_SETTINGS.worldWidth;
+    // 보이는 윗 영역 (현재 카메라 기준 0.15 ~ 0.55 구간)
+    const y = game.cameraY + (0.15 + Math.random() * 0.4) * JUMP_GAME_SETTINGS.arenaHeight;
+    const kind = Math.random() < 0.55 ? 'cloud_imp' : 'fluff_ghost';
+    game.monsters.push({
+      id: `monster-${game.nextMonsterId++}`,
+      x,
+      y,
+      vx: direction * JUMP_GAME_SETTINGS.monsterSpeed,
+      vy: 0,
+      size,
+      kind,
+      direction,
+      spawnY: y,
+      spawnTimeMs: game.elapsedMs,
+    });
+    game.worldDirty = true;
+  }
+
+  _tickJumpMonsters(stepMs) {
+    if (!this.jumpGame) return;
+    const game = this.jumpGame;
+    const stepScale = getJumpStepScale(stepMs);
+
+    // 위치 갱신 + 화면 끝/시야 밖으로 빠져나간 몬스터 정리
+    const before = game.monsters.length;
+    game.monsters = game.monsters.filter((m) => {
+      m.x += m.vx * stepScale;
+      m.y = m.spawnY + Math.sin((game.elapsedMs - m.spawnTimeMs) * 0.0012) * JUMP_GAME_SETTINGS.monsterBobAmplitude;
+      const exitedRight = m.direction === 1 && m.x > JUMP_GAME_SETTINGS.worldWidth + 8;
+      const exitedLeft = m.direction === -1 && m.x + m.size < -8;
+      const fellBehind = m.y > game.cameraY + JUMP_GAME_SETTINGS.arenaHeight + 200;
+      return !(exitedRight || exitedLeft || fellBehind);
+    });
+    if (game.monsters.length !== before) game.worldDirty = true;
+
+    // 스폰 타이머
+    if (game.elapsedMs >= game.nextMonsterSpawnAtMs) {
+      this._spawnEdgeMonster(game);
+      game.nextMonsterSpawnAtMs = game.elapsedMs + randomBetween(
+        JUMP_GAME_SETTINGS.monsterSpawnIntervalMinMs,
+        JUMP_GAME_SETTINGS.monsterSpawnIntervalMaxMs
+      );
+    }
+  }
+
+  _resolveMonsterCollisions(player, previousY) {
+    if (!this.jumpGame || !player.alive || this.jumpGame.monsters.length === 0) return;
+
+    // 몬스터 hitbox 모델 (PNG 외곽 투명 영역 고려해 시각 본체에 맞춤):
+    //  - 가로 22% 인셋 (약 280 - 124 = 156px 너비, 본체 비율)
+    //  - 세로는 22%~60% 구간 (약 106px 높이)
+    //  - 위에서 발이 hitTop 통과 → 발판처럼 안착 + 점프 회복
+    //  - 아래에서 머리 박힘 → 수평 push 없이 vy=0 (제자리 낙하)
+    //  - 옆 박힘 → 수평 MTV
+    const sizeInsetX = JUMP_GAME_SETTINGS.monsterSize * 0.22;
+    const topInset = JUMP_GAME_SETTINGS.monsterSize * 0.22;
+    const bodyHeight = JUMP_GAME_SETTINGS.monsterSize * 0.38;
+
+    for (const m of this.jumpGame.monsters) {
+      const hitX = m.x + sizeInsetX;
+      const hitW = m.size - sizeInsetX * 2;
+      const hitTop = m.y + topInset;
+      const hitBottom = hitTop + bodyHeight;
+
+      const horizontalHit = player.x + player.width > hitX && player.x < hitX + hitW;
+      if (!horizontalHit) continue;
+
+      // 위에서 떨어져 hitTop 통과 → 발판처럼 안착 + 일반 점프
+      if (player.vy > 0) {
+        const feetNow = player.y + player.height;
+        const feetBefore = previousY + player.height;
+        if (feetBefore <= hitTop && feetNow >= hitTop) {
+          const abilities = getJumpAbilities(player.characterId);
+          player.y = hitTop - player.height;
+          player.jumpCount = (player.jumpCount || 0) + 1;
+          const isSuperJump =
+            abilities.superJumpEvery > 0 &&
+            player.jumpCount % abilities.superJumpEvery === 0;
+          player.vy = isSuperJump
+            ? JUMP_GAME_SETTINGS.boostJump
+            : JUMP_GAME_SETTINGS.normalJump * abilities.jumpMul;
+          player.lastBounceKind = isSuperJump ? 'super' : 'normal';
+          player.bounceTag = ((player.bounceTag || 0) + 1) & 0xff;
+          continue;
+        }
+      }
+
+      // 아래에서 머리 박힘 — 옆으로 밀지 않고 제자리에서 vy=0으로 떨어뜨림
+      if (player.vy < 0) {
+        const headNow = player.y;
+        const headBefore = previousY;
+        if (headBefore >= hitBottom && headNow <= hitBottom) {
+          player.y = hitBottom;
+          player.vy = 0;
+          continue;
+        }
+      }
+
+      // 옆 박힘 — MTV 수평 push
+      const overlapY = Math.min(player.y + player.height, hitBottom) - Math.max(player.y, hitTop);
+      if (overlapY <= 0) continue;
+      const overlapX = Math.min(player.x + player.width, hitX + hitW) - Math.max(player.x, hitX);
+      if (overlapX <= 0) continue;
+      const playerCenter = player.x + player.width / 2;
+      const monsterCenter = m.x + m.size / 2;
+      if (playerCenter < monsterCenter) player.x -= overlapX;
+      else player.x += overlapX;
+      player.x = clamp(player.x, 0, JUMP_GAME_SETTINGS.worldWidth - player.width);
     }
   }
 
@@ -590,16 +810,19 @@ export class GameRoom {
   _tickJumpPlayer(player, stepScale) {
     if (!this.jumpGame || !player.alive) return;
 
-    player.vx = player.inputDirection * JUMP_GAME_SETTINGS.moveSpeed;
+    const abilities = getJumpAbilities(player.characterId);
+
+    player.vx = player.inputDirection * JUMP_GAME_SETTINGS.moveSpeed * abilities.moveMul;
     player.x += player.vx * stepScale;
     player.x = clamp(player.x, 0, JUMP_GAME_SETTINGS.worldWidth - player.width);
 
     const previousY = player.y;
-    player.vy += JUMP_GAME_SETTINGS.gravity * stepScale;
+    player.vy += JUMP_GAME_SETTINGS.gravity * abilities.gravityMul * stepScale;
     player.y += player.vy * stepScale;
 
     this._handleJumpLanding(player, previousY);
     this._handleJumpBoostPickup(player);
+    this._resolveMonsterCollisions(player, previousY);
 
     const climbed = Math.max(0, Math.round((JUMP_GAME_SETTINGS.startLineY - player.y) / 10));
     player.bestHeight = Math.max(player.bestHeight, climbed);
@@ -654,6 +877,7 @@ export class GameRoom {
     for (let step = 0; step < substepCount; step += 1) {
       this.jumpGame.elapsedMs += substepMs;
       this._updateJumpPlatformMotion();
+      this._tickJumpMonsters(substepMs);
       players.forEach((player) => this._tickJumpPlayer(player, stepScale));
       this._updateJumpCamera(substepMs);
 
@@ -670,6 +894,10 @@ export class GameRoom {
   }
 
   async _handleJoinGame(ws, msg) {
+    if (msg.gameId === 'mallang-tap') {
+      return await this._handleTapJoinGame(ws, msg);
+    }
+
     if (msg.gameId === 'mallang-rescue') {
       return await this._handleRescueJoinGame(ws, msg);
     }
@@ -719,7 +947,13 @@ export class GameRoom {
     const player = game.players[rosterPlayer.id];
     player.connected = true;
     player.inputDirection = 0;
-    player.characterId = msg.characterId || player.characterId;
+    player.characterId = sanitizeJumpCharacterId(msg.characterId || player.characterId, player.characterId || 'mochi-rabbit');
+    // 게임 시작 전이면 새 캐릭터 능력에 맞게 초기 vy를 재계산 (createJumpPlayer는 default로 계산).
+    if (!game.running) {
+      const abilities = getJumpAbilities(player.characterId);
+      player.vy = JUMP_GAME_SETTINGS.normalJump * abilities.jumpMul;
+      player.jumpCount = 0;
+    }
 
     ws.serializeAttachment({
       ...rosterPlayer,
@@ -823,6 +1057,12 @@ export class GameRoom {
         break;
       case 'PLACE_TOOL':
         if (player?.gameId === 'mallang-rescue') this._handleRescuePlaceTool(player, msg);
+        break;
+      case 'TAP_READY':
+        if (player?.gameId === 'mallang-tap') await this._handleTapReady(player, msg);
+        break;
+      case 'TAP_TARGET':
+        if (player?.gameId === 'mallang-tap') this._handleTapTarget(player, msg);
         break;
       case 'ping':
         ws.send(JSON.stringify({
@@ -938,6 +1178,8 @@ export class GameRoom {
     this._stopJumpLoop();
     this.rescueGame = null;
     this._stopRescueLoop();
+    this.tapGame = null;
+    this._stopTapLoop();
     await this.state.storage.put('phase', 'countdown');
     for (const seconds of [3, 2, 1]) {
       this._broadcastAll({ type: 'countdown', seconds });
@@ -973,6 +1215,8 @@ export class GameRoom {
     this._stopJumpLoop();
     this.rescueGame = null;
     this._stopRescueLoop();
+    this.tapGame = null;
+    this._stopTapLoop();
     // Reset player votes
     for (const { ws, player } of this._getLobbySessions()) {
       ws.serializeAttachment({ ...player, gameVote: null, startVote: false });
@@ -1020,6 +1264,13 @@ export class GameRoom {
         target.ready = false;
         this._broadcastRescueState();
       }
+      return;
+    }
+
+    if (player.role === 'game' && player.gameId === 'mallang-tap' && this.tapGame) {
+      const tapPlayer = this.tapGame.players.find(p => p.id === player.id);
+      if (tapPlayer) tapPlayer.connected = false;
+      this._broadcastTapState();
       return;
     }
 
@@ -1779,5 +2030,280 @@ export class GameRoom {
     await this.state.storage.put('phase', 'results');
     this._broadcastRescue({ type: 'EVENT', event: 'ROUND_FINISHED' });
     this._broadcastRescueState();
+  }
+
+  // ── 탭 배틀 게임 메서드 ────────────────────────────────────────────────────────
+
+  _getTapSessions() {
+    return this._getGameSessions('mallang-tap');
+  }
+
+  _broadcastTap(msg) {
+    this._broadcastGame(msg, 'mallang-tap');
+  }
+
+  _broadcastTapState() {
+    if (!this.tapGame) return;
+    this._broadcastTap({ type: 'STATE_SYNC', state: this._serializeTapState() });
+  }
+
+  _serializeTapState() {
+    const game = this.tapGame;
+    const now = Date.now();
+    const timeLeftMs = game.phase === 'playing'
+      ? Math.max(0, game.durationMs - (now - game.startedAt))
+      : game.timeLeftMs;
+    return {
+      phase: game.phase,
+      players: game.players,
+      targets: game.targets,
+      timeLeftMs,
+      isFever: game.isFever,
+    };
+  }
+
+  _initTapGame(roster) {
+    this.tapGame = {
+      phase: 'waiting',
+      players: roster.slice(0, 2).map(p => ({
+        id: p.id, name: p.name, color: p.color, colorIndex: p.colorIndex,
+        score: 0, ready: false, connected: false,
+      })),
+      targets: [],
+      durationMs: TAP_CONFIG.durationMs,
+      timeLeftMs: TAP_CONFIG.durationMs,
+      startedAt: null,
+      lastTickAt: null,
+      lastSpawnAt: 0,
+      nextTargetId: 1,
+      isFever: false,
+    };
+  }
+
+  async _handleTapJoinGame(ws, msg) {
+    const currentGame = (await this.state.storage.get('currentGame')) || null;
+    const phase       = (await this.state.storage.get('phase')) || 'lobby';
+    const fullRoster  = (await this.state.storage.get('gameRoster')) || [];
+
+    if (currentGame !== 'mallang-tap' || phase !== 'playing') {
+      ws.send(JSON.stringify({ type: 'ERROR', message: '탭 배틀 방이 아직 시작되지 않았습니다.' }));
+      return;
+    }
+
+    const rosterPlayer = fullRoster.find(p => p.id === msg.playerId);
+    if (!rosterPlayer) {
+      ws.send(JSON.stringify({ type: 'ERROR', message: '플레이어 정보가 일치하지 않습니다.' }));
+      return;
+    }
+
+    if (!this.tapGame) this._initTapGame(fullRoster.slice(0, 2));
+
+    const tapPlayer = this.tapGame.players.find(p => p.id === rosterPlayer.id);
+    if (!tapPlayer) {
+      ws.send(JSON.stringify({ type: 'ERROR', message: '2인 슬롯이 가득 찼습니다.' }));
+      return;
+    }
+
+    tapPlayer.connected = true;
+    ws.serializeAttachment({ ...rosterPlayer, role: 'game', gameId: 'mallang-tap' });
+    ws.send(JSON.stringify({ type: 'TAP_JOINED', playerId: rosterPlayer.id }));
+    this._broadcastTapState();
+  }
+
+  async _handleTapReady(player, msg) {
+    if (!this.tapGame) return;
+    const tapPlayer = this.tapGame.players.find(p => p.id === player.id);
+    if (!tapPlayer) return;
+
+    tapPlayer.ready = msg.ready !== false;
+
+    if (
+      this.tapGame.phase === 'waiting' &&
+      this.tapGame.players.length === 2 &&
+      this.tapGame.players.every(p => p.connected && p.ready)
+    ) {
+      this._startTapGame();
+    } else {
+      this._broadcastTapState();
+    }
+  }
+
+  _startTapGame() {
+    if (!this.tapGame) return;
+    const now = Date.now();
+    this.tapGame.phase = 'playing';
+    this.tapGame.startedAt = now;
+    this.tapGame.lastTickAt = now;
+    this.tapGame.lastSpawnAt = now - TAP_CONFIG.normalSpawnIntervalMs;
+    this._broadcastTapState();
+    this._startTapLoop();
+  }
+
+  _startTapLoop() {
+    if (this.tapLoop) clearInterval(this.tapLoop);
+    this.tapLoop = setInterval(() => {
+      this._tickTapGame().catch(() => {});
+    }, TAP_CONFIG.tickMs);
+  }
+
+  _stopTapLoop() {
+    if (this.tapLoop) { clearInterval(this.tapLoop); this.tapLoop = null; }
+  }
+
+  async _tickTapGame() {
+    const game = this.tapGame;
+    if (!game || game.phase !== 'playing') return;
+
+    const now = Date.now();
+    const elapsed = now - game.startedAt;
+    game.timeLeftMs = Math.max(0, game.durationMs - elapsed);
+    game.isFever = game.timeLeftMs <= TAP_CONFIG.feverThresholdMs;
+
+    // Expire old targets
+    game.targets = game.targets.filter(t => t.expiresAt > now);
+
+    // Spawn new targets
+    this._spawnTapTargets(now);
+
+    if (game.timeLeftMs <= 0) {
+      await this._finishTapGame();
+      return;
+    }
+
+    this._broadcastTapState();
+  }
+
+  _spawnTapTargets(now) {
+    const game = this.tapGame;
+    if (!game) return;
+
+    const spawnInterval = game.isFever ? TAP_CONFIG.feverSpawnIntervalMs : TAP_CONFIG.normalSpawnIntervalMs;
+    if (now - game.lastSpawnAt < spawnInterval) return;
+
+    const maxTargets = game.isFever ? TAP_CONFIG.maxTargetsFever : TAP_CONFIG.maxTargetsNormal;
+    if (game.targets.length >= maxTargets) return;
+
+    game.lastSpawnAt = now;
+
+    const bonusChance = game.isFever ? TAP_CONFIG.bonusRatioFever : TAP_CONFIG.bonusRatioNormal;
+    if (Math.random() < bonusChance) {
+      this._spawnTapBonus(now);
+    } else {
+      // Alternate personal targets between players for fairness
+      const playerIndex = game.targets.filter(t => t.kind === 'personal').length % game.players.length;
+      this._spawnTapPersonal(now, game.players[playerIndex]);
+    }
+  }
+
+  _findTapPosition(existingTargets) {
+    const minDist = 18;
+    const bounds = { xMin: 10, xMax: 90, yMin: 15, yMax: 82 };
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const x = bounds.xMin + Math.random() * (bounds.xMax - bounds.xMin);
+      const y = bounds.yMin + Math.random() * (bounds.yMax - bounds.yMin);
+      const tooClose = existingTargets.some(t => {
+        const dx = t.x - x, dy = (t.y - y) * 1.4;
+        return Math.sqrt(dx * dx + dy * dy) < minDist;
+      });
+      if (!tooClose) return { x, y };
+    }
+    return {
+      x: bounds.xMin + Math.random() * (bounds.xMax - bounds.xMin),
+      y: bounds.yMin + Math.random() * (bounds.yMax - bounds.yMin),
+    };
+  }
+
+  _spawnTapPersonal(now, owner) {
+    const game = this.tapGame;
+    if (!game) return;
+    const roll = Math.random();
+    const type = roll < 0.45 ? TAP_PERSONAL_TYPES[0] : roll < 0.80 ? TAP_PERSONAL_TYPES[1] : TAP_PERSONAL_TYPES[2];
+    const pos = this._findTapPosition(game.targets);
+    game.targets.push({
+      id: `t-${game.nextTargetId++}`,
+      kind: 'personal',
+      ownerId: owner.id,
+      icon: type.icon,
+      score: type.score,
+      x: pos.x,
+      y: pos.y,
+      spawnedAt: now,
+      expiresAt: now + TAP_CONFIG.targetLifeMs,
+      claimedBy: null,
+    });
+  }
+
+  _spawnTapBonus(now) {
+    const game = this.tapGame;
+    if (!game) return;
+    const type = TAP_BONUS_TYPES[Math.floor(Math.random() * TAP_BONUS_TYPES.length)];
+    // Bonus targets in the central zone; clamp after overlap check
+    const pos = this._findTapPosition(game.targets);
+    const x = Math.min(75, Math.max(25, pos.x));
+    const y = Math.min(70, Math.max(20, pos.y));
+    game.targets.push({
+      id: `t-${game.nextTargetId++}`,
+      kind: 'bonus',
+      ownerId: null,
+      icon: type.icon,
+      score: type.score,
+      x,
+      y,
+      spawnedAt: now,
+      expiresAt: now + TAP_CONFIG.bonusTargetLifeMs,
+      claimedBy: null,
+    });
+  }
+
+  _handleTapTarget(player, msg) {
+    const game = this.tapGame;
+    if (!game || game.phase !== 'playing') return;
+
+    const target = game.targets.find(t => t.id === msg.targetId && !t.claimedBy);
+    if (!target) {
+      // Already claimed or expired
+      for (const { ws, player: p } of this._getTapSessions()) {
+        if (p.id === player.id) {
+          ws.send(JSON.stringify({ type: 'TAP_RESULT', targetId: msg.targetId, winnerPlayerId: null, scoreDelta: 0, clientSeq: msg.clientSeq || 0 }));
+          break;
+        }
+      }
+      return;
+    }
+
+    // Personal target: only owner can score
+    if (target.kind === 'personal' && target.ownerId !== player.id) return;
+
+    // Claim it
+    target.claimedBy = player.id;
+    const tapPlayer = game.players.find(p => p.id === player.id);
+    if (tapPlayer) tapPlayer.score += target.score;
+
+    this._broadcastTap({
+      type: 'TAP_RESULT',
+      targetId: target.id,
+      winnerPlayerId: player.id,
+      scoreDelta: target.score,
+      clientSeq: msg.clientSeq || 0,
+    });
+
+    game.targets = game.targets.filter(t => t.id !== target.id);
+  }
+
+  async _finishTapGame() {
+    const game = this.tapGame;
+    if (!game) return;
+    game.phase = 'finished';
+    game.timeLeftMs = 0;
+    this._stopTapLoop();
+
+    const scores = {};
+    for (const p of game.players) {
+      scores[p.id] = { id: p.id, name: p.name, color: p.color, colorIndex: p.colorIndex, score: p.score };
+    }
+    await this.state.storage.put('scores', scores);
+    await this.state.storage.put('phase', 'results');
+    this._broadcastTapState();
   }
 }
