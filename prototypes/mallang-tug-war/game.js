@@ -80,6 +80,8 @@ const state = {
   iceTintUntilMs: 0,    // 얼음별사탕 효과 중인 본인 화면 청록 틴트 만료 시각 (performance.now 기준)
   // Phase E-2: KO 시퀀스 — 서버 finished 도달 후 클라가 1.8초 자체 보류하고 단계별 모션을 보임.
   koSequenceActive: false,
+  // Phase E-3: 서버 stats 미러 (명장면 회상 문구 생성용).
+  stats: {},          // { [playerId]: PlayerStats }
 };
 
 // SPEC line 491~499: 7단계 KO 시퀀스. 단계별 시작 시각(ms 진행 시간) — CSS animation은
@@ -413,6 +415,11 @@ function applyStateSync(serverState) {
   // Phase E-1: items 미러
   state.items = Array.isArray(serverState.items) ? serverState.items : [];
 
+  // Phase E-3: stats 미러 (명장면 회상 문구 생성용)
+  if (serverState.stats && typeof serverState.stats === 'object') {
+    state.stats = serverState.stats;
+  }
+
   const me = state.players.find((p) => p.id === myPlayerId);
   if (me) {
     state.myCharacter = me.characterId || state.myCharacter;
@@ -443,6 +450,10 @@ function handleGameEnd(msg) {
   if (!state.koSequenceActive) {
     state.winnerId = msg.winnerId ?? null;
     state.endReason = msg.reason ?? null;
+  }
+  // 명장면 회상용 stats — TUG_GAME_END가 마지막 권위 stats를 함께 보냄.
+  if (msg.stats && typeof msg.stats === 'object') {
+    state.stats = msg.stats;
   }
   finalizeFinish();
 }
@@ -533,6 +544,82 @@ function renderResult() {
       const youText = me ? `당신: ${me.name}${opponent ? ` · 상대: ${opponent.name}` : ''}` : '';
       detailEl.textContent = `${winnerText} · ${ropePosText}${youText ? ` · ${youText}` : ''}`;
     }
+  }
+
+  renderHighlightReel();
+}
+
+// Phase E-3: 명장면 회상 — 본인 stats 기반 자동 문구 (SPEC line 565~574). 화면당 2~3개만.
+function renderHighlightReel() {
+  const reelEl = document.getElementById('highlightReel');
+  if (!reelEl) return;
+  reelEl.innerHTML = '';
+
+  const myStats = state.stats?.[myPlayerId];
+  const isWinner = state.winnerId && state.winnerId === myPlayerId;
+  const isDraw = state.endReason === 'timeout' && !state.winnerId;
+  const candidates = [];
+
+  // 무승부 — 우선 처리.
+  if (isDraw) {
+    candidates.push('막상막하! 한 판 더?');
+  }
+
+  if (myStats) {
+    // KO 승리 + 한때 위기였음 (worstRopePos > 0.7).
+    if (isWinner && state.endReason === 'ko' && (myStats.worstRopePos || 0) > 0.7) {
+      const dangerSec = Math.round(((myStats.timeInDangerMs || 0) / 1000) * 10) / 10;
+      candidates.push(`발끝에서 ${dangerSec.toFixed(1)}초 버티고 역전!`);
+    }
+    // comeback 후 승리.
+    if (isWinner && (myStats.comebackFromRopePos || 0) >= 0.7) {
+      candidates.push(`최대 위기 ${(myStats.comebackFromRopePos).toFixed(2)}에서 comeback!`);
+    }
+    // 찌부 생존.
+    if ((myStats.timeInDangerMs || 0) > 3000) {
+      const sec = Math.round((myStats.timeInDangerMs / 1000) * 10) / 10;
+      candidates.push(`찌부 상태 ${sec.toFixed(1)}초 생존!`);
+    }
+    // 연속 Perfect.
+    if ((myStats.longestPerfectStreak || 0) >= 4) {
+      candidates.push(`최고 연속 Perfect ${myStats.longestPerfectStreak}!`);
+    }
+    // KO 결정 시점이 페이즈 2 마지막 3초.
+    if (isWinner && state.endReason === 'ko' && Number.isFinite(myStats.finalBlowAt)) {
+      const finalMs = myStats.finalBlowAt;
+      // 라운드 마지막 3초: durationMs - 3000 ~ durationMs.
+      if (finalMs >= state.durationMs - 3000) {
+        const remaining = Math.max(0, state.durationMs - finalMs);
+        const remainingSec = Math.round((remaining / 1000) * 10) / 10;
+        candidates.push(`마지막 ${remainingSec.toFixed(1)}초 Perfect Pull로 결정!`);
+      }
+      // 게임 종료 직전 1초.
+      if (state.durationMs - finalMs <= 1000 && state.durationMs - finalMs > 0) {
+        const ms = Math.max(0, Math.round(state.durationMs - finalMs));
+        candidates.push(`0.${String(ms).padStart(3, '0').slice(0, 2)}초 남기고 KO!`);
+      }
+    }
+    // 정확도 (높은 perfect 비율) — 기본 통계 추가.
+    const taps = (myStats.perfects || 0) + (myStats.goods || 0) + (myStats.misses || 0);
+    if (taps >= 10 && taps > 0) {
+      const accuracy = Math.round(((myStats.perfects || 0) / taps) * 100);
+      if (accuracy >= 70 && candidates.length < 3) {
+        candidates.push(`정확도 ${accuracy}%`);
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+    return; // 보여줄 회상이 없으면 reel 영역 비움.
+  }
+
+  // 화면당 2~3개만 표시 (SPEC).
+  const top = candidates.slice(0, 3);
+  for (const text of top) {
+    const li = document.createElement('li');
+    li.className = 'highlight-line';
+    li.textContent = text;
+    reelEl.appendChild(li);
   }
 }
 

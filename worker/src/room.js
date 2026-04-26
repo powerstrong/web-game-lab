@@ -1049,6 +1049,7 @@ export class GameRoom {
         connected: false,
       };
       game.stats[id] = {
+        // Phase C부터 활성.
         perfects: 0,
         goods: 0,
         misses: 0,
@@ -1056,6 +1057,13 @@ export class GameRoom {
         totalPullContribution: 0,
         longestPerfectStreak: 0,
         currentPerfectStreak: 0,
+        // Phase E-3: 명장면 회상용. side 기준 자기 진영 입장에서 갱신.
+        worstRopePos: 0,        // 자기에게 가장 위험했던 ropePos의 절대값 (0~1).
+        timeInDangerMs: 0,      // danger/critical 상태(자기 진영 기준) 누적 시간.
+        comebackFromRopePos: null, // 0.7 이상 밀렸다가 자기 진영 우세로 복귀했을 때 가장 깊었던 절대값.
+        finalBlowAt: null,      // 본인 KO 승리/시간 우세 결정 시점의 elapsedMs.
+        _deepestDisadvantage: 0, // 내부: 가장 깊이 밀렸던 절대값 (comeback 계산용).
+        _wasInDanger: false,     // 내부: 직전 tick의 danger 상태 (체류 시간 계산용 — 실제 누적은 frame ms 가산).
       };
     });
     this.tugWarGame = game;
@@ -1087,12 +1095,24 @@ export class GameRoom {
       endReason: game.endReason,
       currentRing: game.currentRing ? this._serializeTugRing(game.currentRing) : null,
       items: game.items.map((item) => this._serializeTugItem(item)),
-      stats: Object.fromEntries(
-        Object.entries(game.stats).map(([id, s]) => [id, { ...s }]),
-      ),
+      stats: this._serializeTugStats(game.stats),
       phaseStage: getTugPhaseStage(game),
       serverTimeMs: Date.now(),
     };
+  }
+
+  // 내부 underscore 필드는 클라에 노출 안 함 (deepestDisadvantage / wasInDanger 등 트래킹 용도).
+  _serializeTugStats(stats) {
+    const out = {};
+    for (const [id, s] of Object.entries(stats)) {
+      const cleaned = {};
+      for (const [k, v] of Object.entries(s)) {
+        if (k.startsWith('_')) continue;
+        cleaned[k] = v;
+      }
+      out[id] = cleaned;
+    }
+    return out;
   }
 
   _serializeTugItem(item) {
@@ -1242,6 +1262,9 @@ export class GameRoom {
 
     const now = Date.now();
     let dirty = false;
+
+    // Phase E-3: 명장면 회상 stats 갱신 (worstRopePos / timeInDangerMs / comebackFromRopePos).
+    this._updateTugDramaStats(now);
 
     // 페이즈 1 → 페이즈 2 전환 감지. 직전 stage와 다르면 STATE_SYNC.
     const stage = getTugPhaseStage(game);
@@ -1396,6 +1419,50 @@ export class GameRoom {
     }
   }
 
+  // Phase E-3 — 명장면 회상 stats 갱신 (매 tick).
+  // 자기 진영 입장의 disadvantage = side==='left' ? -ropePos : ropePos. 양수면 위험, 음수면 안전.
+  _updateTugDramaStats(now) {
+    const game = this.tugWarGame;
+    if (!game || game.phase !== 'playing' || !game.startedAt) return;
+
+    const dt = game._lastDramaTickAt ? Math.max(0, now - game._lastDramaTickAt) : 0;
+    game._lastDramaTickAt = now;
+
+    for (const player of Object.values(game.players)) {
+      const stats = game.stats[player.id];
+      if (!stats) continue;
+      const selfDisadvantage = player.side === 'left' ? -game.ropePos : game.ropePos;
+      const disadvAbs = Math.max(0, selfDisadvantage);
+
+      // worstRopePos: 자기에게 가장 위험했던 ropePos 절대값.
+      if (disadvAbs > stats.worstRopePos) stats.worstRopePos = disadvAbs;
+
+      // timeInDangerMs: 자기 진영 기준 danger(>=0.7) 또는 critical(>=0.9) 상태 누적 체류.
+      if (disadvAbs >= 0.7) stats.timeInDangerMs += dt;
+
+      // comebackFromRopePos: 0.7 이상 밀렸다가 자기 진영 균형(disadv<=0)으로 복귀한 첫 시점에 한 번만 기록.
+      if (disadvAbs > stats._deepestDisadvantage) stats._deepestDisadvantage = disadvAbs;
+      if (
+        stats.comebackFromRopePos == null &&
+        stats._deepestDisadvantage >= 0.7 &&
+        selfDisadvantage <= 0
+      ) {
+        stats.comebackFromRopePos = stats._deepestDisadvantage;
+        // 한 번 기록 후 재트리거 방지: deepest 리셋. 이후에 또 깊이 밀려야 의미 있는 기록.
+        stats._deepestDisadvantage = 0;
+      }
+    }
+  }
+
+  _markTugFinalBlow(winnerId) {
+    const game = this.tugWarGame;
+    if (!game || !winnerId) return;
+    const stats = game.stats[winnerId];
+    if (!stats) return;
+    const elapsed = game.startedAt ? Date.now() - game.startedAt : 0;
+    stats.finalBlowAt = elapsed;
+  }
+
   _spawnTugRing(now, cfg = TUG_RHYTHM_CONFIG_PHASE1) {
     const game = this.tugWarGame;
     if (!game) return;
@@ -1441,6 +1508,7 @@ export class GameRoom {
     } else {
       game.winnerId = null;
     }
+    this._markTugFinalBlow(game.winnerId);
     this._broadcastTugGameEnd('timeout');
     this._broadcastTugWarStateSync();
   }
@@ -1461,6 +1529,7 @@ export class GameRoom {
       const right = Object.values(game.players).find((p) => p.side === 'right');
       game.winnerId = right?.id || null;
     }
+    this._markTugFinalBlow(game.winnerId);
     this._broadcastTugGameEnd('ko');
     this._broadcastTugWarStateSync();
   }
@@ -1473,7 +1542,7 @@ export class GameRoom {
       reason,
       winnerId: game.winnerId,
       finalRopePos: game.ropePos,
-      stats: { ...game.stats },
+      stats: this._serializeTugStats(game.stats),
     }, 'mallang-tug-war');
   }
 

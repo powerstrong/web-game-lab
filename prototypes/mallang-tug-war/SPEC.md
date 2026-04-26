@@ -903,6 +903,33 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 
 ## 변경 이력
 
+### v0.15 (Phase E-3 완료 — 결과 화면 명장면 회상)
+
+**서버 (`worker/src/room.js`)**:
+- PlayerStats에 Phase E 필드 추가: `worstRopePos / timeInDangerMs / comebackFromRopePos / finalBlowAt` + 내부 트래킹용 `_deepestDisadvantage / _wasInDanger`
+- `_updateTugDramaStats(now)` — 매 tick(50ms) 호출. 자기 진영 disadvantage = `side==='left' ? -ropePos : ropePos`. 양수면 위험.
+  - `worstRopePos = max(stats.worstRopePos, max(0, disadvantage))`
+  - `timeInDangerMs += dt` if `disadvantage >= 0.7`
+  - `comebackFromRopePos`: 0.7 이상 밀렸다가 자기 진영 균형(`disadvantage <= 0`) 복귀 첫 시점에 한 번만 기록 후 `_deepestDisadvantage` 리셋 (중복 트리거 방지)
+- `_markTugFinalBlow(winnerId)` — KO/timeout 종료 시 winner의 `finalBlowAt = elapsedMs` 기록
+- `_serializeTugStats()` 헬퍼 — STATE_SYNC/TUG_GAME_END 송출 시 `_` prefix 내부 필드 자동 제거 (보안/노이즈 방지)
+
+**클라 (`game.js`)**:
+- `state.stats` 미러 (applyStateSync + handleGameEnd 둘 다)
+- `renderHighlightReel()` — 본인 stats 기준 SPEC line 565~574 7가지 조건 검사 후 후보 문구 생성, 화면당 2~3개만 표시
+  - KO + worstRopePos>0.7 → "발끝에서 {sec}초 버티고 역전!"
+  - comebackFromRopePos>=0.7 → "최대 위기 {pos}에서 comeback!"
+  - timeInDangerMs>3000 → "찌부 상태 {sec}초 생존!"
+  - longestPerfectStreak>=4 → "최고 연속 Perfect {n}!"
+  - finalBlowAt이 페이즈 2 마지막 3초 → "마지막 {sec}초 Perfect Pull로 결정!"
+  - finalBlowAt이 종료 직전 1초 → "0.{ms}초 남기고 KO!"
+  - 무승부 → "막상막하! 한 판 더?"
+  - 추가: 정확도 70%+ (10탭 이상) → "정확도 {%}"
+
+**HTML/CSS**:
+- 결과 패널에 `#highlightReel <ul>` 추가 (비어 있으면 `:empty` 셀렉터로 영역 숨김)
+- `.highlight-line` 톤다운 골드 카드 + `highlight-pop` 키프레임 (순차 stagger 120ms)
+
 ### v0.14 (Phase E-2 gemini 리뷰 반영)
 
 **Major 1 — KO 시퀀스 도중 후행 메시지 차단**: `koSequenceActive=true`인 동안 `handleGameEnd`/`applyStateSync`가 `winnerId/endReason`을 덮어쓰지 못하도록 가드. abandoned/timeout STATE_SYNC가 늦게 도착해도 KO 연출과 결과 텍스트가 일관되게 유지됨.
