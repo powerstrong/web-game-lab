@@ -83,6 +83,17 @@ function getJumpAbilities(characterId) {
 function sanitizeJumpCharacterId(characterId, fallback = 'mochi-rabbit') {
   return JUMP_CHARACTERS.includes(characterId) ? characterId : fallback;
 }
+
+const TUG_CHARACTERS = ['mochi-rabbit', 'pudding-hamster', 'peach-chick'];
+const TUG_DEFAULT_CHARACTER = 'mochi-rabbit';
+const TUG_DURATION_MS = 30000;
+const TUG_COUNTDOWN_SECONDS = 3;
+const TUG_PLAYER_COUNT = 2;
+
+function sanitizeTugCharacterId(characterId, fallback = TUG_DEFAULT_CHARACTER) {
+  return TUG_CHARACTERS.includes(characterId) ? characterId : fallback;
+}
+
 const JUMP_PROTOCOL_VERSION = 'jump/v1';
 const JUMP_BASE_STEP_MS = 1000 / 60;
 const JUMP_SESSION_LIMITS = {
@@ -914,42 +925,150 @@ export class GameRoom {
     this._broadcastJumpPatch();
   }
 
-  async _handleTugWarJoinGame(ws, msg) {
-    const fullRoster = (await this.state.storage.get('gameRoster')) || [];
-    const playerRoster = fullRoster.slice(0, 2); // 1v1, first 2 roster entries are players
-    const rosterPlayer = fullRoster.find((p) => p.id === msg.playerId) || null;
+  _ensureTugWarGame(playerRoster) {
+    if (this.tugWarGame) return this.tugWarGame;
+    const participants = playerRoster.slice(0, TUG_PLAYER_COUNT);
+    const game = {
+      phase: 'waiting',
+      durationMs: TUG_DURATION_MS,
+      startedAt: null,
+      countdownEndsAt: null,
+      ropePos: 0,
+      players: {},
+      roster: participants.map((p, i) => ({
+        id: p.id,
+        name: p.name,
+        side: i === 0 ? 'left' : 'right',
+      })),
+      winnerId: null,
+      endReason: null,
+    };
+    game.roster.forEach(({ id, name, side }) => {
+      game.players[id] = {
+        id,
+        name,
+        side,
+        characterId: TUG_DEFAULT_CHARACTER,
+        ready: false,
+        connected: false,
+      };
+    });
+    this.tugWarGame = game;
+    return game;
+  }
 
+  _serializeTugWarState() {
+    if (!this.tugWarGame) return null;
+    const game = this.tugWarGame;
+    let timeLeftMs = game.durationMs;
+    if (game.phase === 'playing' && game.startedAt) {
+      timeLeftMs = Math.max(0, game.durationMs - (Date.now() - game.startedAt));
+    } else if (game.phase === 'finished') {
+      timeLeftMs = 0;
+    }
+    let countdownMsLeft = null;
+    if (game.phase === 'countdown' && game.countdownEndsAt) {
+      countdownMsLeft = Math.max(0, game.countdownEndsAt - Date.now());
+    }
+    return {
+      phase: game.phase,
+      durationMs: game.durationMs,
+      timeLeftMs,
+      countdownMsLeft,
+      startedAt: game.startedAt,
+      ropePos: game.ropePos,
+      players: game.roster.map(({ id }) => ({ ...game.players[id] })),
+      winnerId: game.winnerId,
+      endReason: game.endReason,
+      serverTimeMs: Date.now(),
+    };
+  }
+
+  _broadcastTugWarStateSync() {
+    const state = this._serializeTugWarState();
+    if (!state) return;
+    this._broadcastGame({ type: 'TUG_STATE_SYNC', state }, 'mallang-tug-war');
+  }
+
+  async _handleTugWarJoinGame(ws, msg) {
+    const currentGame = (await this.state.storage.get('currentGame')) || null;
+    const lobbyPhase = (await this.state.storage.get('phase')) || 'lobby';
+    if (currentGame !== 'mallang-tug-war' || lobbyPhase !== 'playing') {
+      ws.send(JSON.stringify({ type: 'error', message: '지금은 줄다리기 방에 합류할 수 없습니다.' }));
+      return;
+    }
+
+    const fullRoster = (await this.state.storage.get('gameRoster')) || [];
+    const playerRoster = fullRoster.slice(0, TUG_PLAYER_COUNT);
+    const rosterPlayer = fullRoster.find((p) => p.id === msg.playerId) || null;
     if (!rosterPlayer) {
       ws.send(JSON.stringify({ type: 'error', message: '방 플레이어 정보가 맞지 않습니다.' }));
       return;
     }
 
-    const isPlayer = playerRoster.some((p) => p.id === msg.playerId);
+    const game = this._ensureTugWarGame(playerRoster);
+    const isPlayer = game.players[rosterPlayer.id] != null;
     const role = isPlayer ? 'player' : 'spectator';
-    const side = isPlayer
-      ? (playerRoster[0].id === msg.playerId ? 'left' : 'right')
-      : undefined;
+    const side = isPlayer ? game.players[rosterPlayer.id].side : undefined;
 
     ws.serializeAttachment({
       ...rosterPlayer,
       role: 'game',
       gameId: 'mallang-tug-war',
+      side: side || null,
       isSpectator: !isPlayer,
     });
 
+    if (isPlayer) {
+      game.players[rosterPlayer.id].connected = true;
+    }
+
     ws.send(JSON.stringify({ type: 'TUG_JOINED', role, side }));
-
-    // TODO: Phase B에서 게임 상태 초기화 + STATE_SYNC 브로드캐스트
-  }
-
-  async _handleTugWarReady(player, msg) {
-    // TODO: Phase B에서 ready 상태 추적 + 양쪽 ready 시 카운트다운 시작
-    console.log('[tug-war] TUG_READY received from', player.id, msg.ready);
+    this._broadcastTugWarStateSync();
   }
 
   async _handleTugWarSelectCharacter(player, msg) {
-    // TODO: Phase B에서 캐릭터 ID 검증 + 상태 저장 + 브로드캐스트
-    console.log('[tug-war] TUG_SELECT_CHARACTER', player.id, msg.characterId);
+    if (!this.tugWarGame || player.isSpectator) return;
+    const target = this.tugWarGame.players[player.id];
+    if (!target) return;
+    if (this.tugWarGame.phase !== 'waiting') return;
+    target.characterId = sanitizeTugCharacterId(msg.characterId, target.characterId);
+    this._broadcastTugWarStateSync();
+  }
+
+  async _handleTugWarReady(player, msg) {
+    if (!this.tugWarGame || player.isSpectator) return;
+    const target = this.tugWarGame.players[player.id];
+    if (!target) return;
+    if (this.tugWarGame.phase !== 'waiting') return;
+    target.ready = msg.ready === true;
+
+    const everyone = Object.values(this.tugWarGame.players);
+    const fullRoster = everyone.length === TUG_PLAYER_COUNT;
+    const allReady = fullRoster && everyone.every((p) => p.ready && p.connected);
+
+    if (allReady) {
+      this._startTugWarCountdown();
+    } else {
+      this._broadcastTugWarStateSync();
+    }
+  }
+
+  _startTugWarCountdown() {
+    if (!this.tugWarGame || this.tugWarGame.phase !== 'waiting') return;
+    this.tugWarGame.phase = 'countdown';
+    this.tugWarGame.countdownEndsAt = Date.now() + TUG_COUNTDOWN_SECONDS * 1000;
+    this._broadcastTugWarStateSync();
+    setTimeout(() => this._tugWarBeginRound(), TUG_COUNTDOWN_SECONDS * 1000);
+  }
+
+  _tugWarBeginRound() {
+    if (!this.tugWarGame || this.tugWarGame.phase !== 'countdown') return;
+    this.tugWarGame.phase = 'playing';
+    this.tugWarGame.startedAt = Date.now();
+    this.tugWarGame.countdownEndsAt = null;
+    this._broadcastTugWarStateSync();
+    // Phase C: rhythm ring spawn loop + 30초 만료 타이머
   }
 
   _handleTugWarTap(player, msg) {
@@ -1150,6 +1269,7 @@ export class GameRoom {
     await this.state.storage.delete('scores');
     this.jumpGame = null;
     this._stopJumpLoop();
+    this.tugWarGame = null;
     await this.state.storage.put('phase', 'countdown');
     for (const seconds of [3, 2, 1]) {
       this._broadcastAll({ type: 'countdown', seconds });
@@ -1183,6 +1303,7 @@ export class GameRoom {
     await this.state.storage.delete('gameRoster');
     this.jumpGame = null;
     this._stopJumpLoop();
+    this.tugWarGame = null;
     // Reset player votes
     for (const { ws, player } of this._getLobbySessions()) {
       ws.serializeAttachment({ ...player, gameVote: null, startVote: false });
@@ -1224,7 +1345,28 @@ export class GameRoom {
     }
 
     if (player.role === 'game' && player.gameId === 'mallang-tug-war' && this.tugWarGame) {
-      // TODO: Phase B에서 disconnect 정리 (게임 중이면 abandoned로 종료)
+      const target = this.tugWarGame.players[player.id];
+      if (target) {
+        target.connected = false;
+        target.ready = false;
+
+        const inRound = this.tugWarGame.phase === 'countdown' || this.tugWarGame.phase === 'playing';
+        if (inRound) {
+          this.tugWarGame.phase = 'finished';
+          this.tugWarGame.endReason = 'abandoned';
+          const survivor = Object.values(this.tugWarGame.players).find((p) => p.connected);
+          this.tugWarGame.winnerId = survivor?.id || null;
+          this._broadcastGame({
+            type: 'TUG_GAME_END',
+            reason: 'abandoned',
+            winnerId: this.tugWarGame.winnerId,
+            finalRopePos: this.tugWarGame.ropePos,
+            stats: {},
+          }, 'mallang-tug-war');
+        }
+        this._broadcastTugWarStateSync();
+      }
+      return;
     }
 
     const sessions = this._getLobbySessions(); // excludes the null'd player

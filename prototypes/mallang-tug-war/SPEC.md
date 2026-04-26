@@ -649,14 +649,48 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 ### Phase A에서 미해결로 남긴 minor 이슈 (Phase C 시 같이 처리)
 - **`game.js:51` `send()` 함수** — 현재 모든 메시지에 자동으로 `clientSeq: ++clientSeq` 부여. SPEC상 `clientSeq`는 `TUG_TAP`/`TUG_ITEM_GRAB`에만 있어야 함. Phase C에서 리듬 탭 처리 들어갈 때 같이 정리.
 
-### Phase B — 캐릭터 선택 동기화 + Ready/카운트다운 (예정)
-범위:
-- 클라 캐릭터 선택 시 서버에 `TUG_SELECT_CHARACTER` 송신
-- 서버에서 게임 상태(`tugWarGame`) 초기화 및 캐릭터 ID 검증 + 양쪽 브로드캐스트
-- `TUG_READY` 처리 — 양쪽 ready 시 3-2-1 카운트다운 + 상태 phase `'countdown' → 'playing'` 전환
-- `TUG_STATE_SYNC` 브로드캐스트 (서버 권위 상태 + 30초 타이머)
-- jump-climber 자산을 캐릭터 카드에 연결 (현재는 텍스트만)
-- disconnect 처리 (게임 중이면 abandoned로 종료)
+### Phase B — 캐릭터 선택 동기화 + Ready/카운트다운 ✅ 완료
+
+**구현 산출물**:
+- **`worker/src/room.js`**:
+  - 상수 `TUG_CHARACTERS / TUG_DEFAULT_CHARACTER / TUG_DURATION_MS / TUG_COUNTDOWN_SECONDS / TUG_PLAYER_COUNT` + `sanitizeTugCharacterId()` 추가
+  - `_ensureTugWarGame(playerRoster)` — 1v1 roster로 게임 상태 객체 생성 (phase=waiting, players[id]={side, characterId, ready, connected, ...})
+  - `_serializeTugWarState()` — STATE_SYNC 페이로드 빌더 (phase/timeLeftMs/countdownMsLeft/players/ropePos/serverTimeMs)
+  - `_broadcastTugWarStateSync()` — game 세션(player+spectator) 전체에 브로드캐스트
+  - `_handleTugWarJoinGame()` — currentGame/lobbyPhase 검증, attachment 저장, players[id].connected=true, STATE_SYNC 송출
+  - `_handleTugWarSelectCharacter()` — phase==='waiting'에서만 캐릭터 ID 검증 후 갱신 + STATE_SYNC
+  - `_handleTugWarReady()` — ready 갱신, 양쪽 player가 connected+ready면 `_startTugWarCountdown()`
+  - `_startTugWarCountdown()` / `_tugWarBeginRound()` — phase 전환(waiting→countdown→playing) + setTimeout 3s
+  - `_removePlayer()` — tug-war 진행 중 disconnect 시 phase=finished+endReason=`abandoned`, TUG_GAME_END 브로드캐스트
+  - `_startCountdown()` / `_handleRematch()`에서 `this.tugWarGame = null` 리셋
+
+- **`prototypes/mallang-tug-war/game.js`** (전면 재작성):
+  - 캐릭터 메타 (`TUG_CHARACTERS`) — jump-climber 자산 파일명 매핑 (`토끼/햄스터/병아리 메인 이미지.png`)
+  - `applyStateSync()` — 서버 상태 미러 + phase별 화면 전환
+  - 캐릭터 카드 클릭 시 `TUG_SELECT_CHARACTER` 송신 (waiting 한정, 관전자 무시)
+  - `renderSetup()` — Ready 버튼 상태/상대 ready 상태 표시
+  - `renderPlay()` — 양쪽 캐릭터 이미지/이름/YOU 배지, 카운트다운 오버레이, 30초 타이머
+  - `localTick()` — STATE_SYNC 사이의 카운트다운/타이머 보간 (rAF)
+  - `handleGameEnd()` — TUG_GAME_END(`timeout`/`ko`/`abandoned`) 결과 화면 전환
+
+- **`prototypes/mallang-tug-war/index.html`**:
+  - 캐릭터 카드에 `<img>` 추가 (jump-climber 자산 percent-encoded URL)
+  - Ready 상태 표시 `#readyStatus`
+  - Play 화면: `#tugTimer`, 좌/우 캐릭터 슬롯 + YOU 배지, `#countdownOverlay`, `#rhythmHint`
+
+- **`prototypes/mallang-tug-war/style.css`**:
+  - `.character-grid` 3열 그리드, 카드 이미지 64×64
+  - `.tug-character` 좌/우 슬롯 + 이름 pill + `.tug-you-badge`
+  - `.tug-timer` 상단 중앙 알약 / `.countdown-overlay` 풀스크린 블러+숫자
+
+**디자인 선택**:
+- `endReason: 'abandoned'`는 SPEC v0.4의 명시 제외 케이스 — Phase B에서 추가 (timeout/ko 외 disconnect 처리 필요).
+- STATE_SYNC가 `serverTimeMs` 포함 — Phase C에서 RTT 보정 시 활용.
+- 클라는 `localTick`(rAF)으로 STATE_SYNC 사이 카운트다운/타이머를 보간. 권위는 STATE_SYNC가 결정.
+
+**Phase B에서 미해결로 남긴 이슈 (Phase C 시 처리)**:
+- `game.js`의 `sendSeq()` 정의됨, 호출처 없음 — Phase C에서 `TUG_TAP`/`TUG_ITEM_GRAB`에 사용 예정.
+- 30초 만료 타이머는 Phase C에서 ring tick과 함께 추가 (현재는 `_tugWarBeginRound` 후 자동 종료 없음).
 
 ### Phase C — 리듬 링 + TAP 판정 + ropePos (예정)
 
@@ -730,6 +764,10 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 ---
 
 ## 변경 이력
+
+### v0.5 (Phase B 완료)
+
+**Phase B**: 캐릭터 선택 동기화, TUG_READY → 3-2-1 카운트다운 → playing 전환, TUG_STATE_SYNC 브로드캐스트, jump-climber 자산을 캐릭터 카드/플레이 화면에 연결, disconnect 시 `abandoned` 종료. 30초 만료 타이머/리듬 링은 Phase C에서 추가.
 
 ### v0.4 (Phase 0 정리 + Phase A 스캐폴딩 완료)
 

@@ -14,22 +14,27 @@
         <section class="panel setup-panel" aria-labelledby="setupTitle">
           <p class="eyebrow">MALLANG TUG WAR</p>
           <h1 id="setupTitle">🪢 말랑프렌즈 줄다리기</h1>
-          <p class="setup-copy">캐릭터를 고르고 Ready를 누르면 다음 Phase에서 1v1 줄다리기가 시작됩니다.</p>
+          <p class="setup-copy">캐릭터를 고르고 Ready를 누르면 1v1 줄다리기가 시작됩니다.</p>
 
           <div class="character-grid" aria-label="캐릭터 선택">
             <button class="character-card is-selected" type="button" data-character="mochi-rabbit">
+              <img src="../jump-climber/assets/%ED%86%A0%EB%81%BC%20%EB%A9%94%EC%9D%B8%20%EC%9D%B4%EB%AF%B8%EC%A7%80.png" alt="모찌 토끼" />
               <strong>모찌 토끼</strong>
               <span>mochi-rabbit</span>
             </button>
             <button class="character-card" type="button" data-character="pudding-hamster">
+              <img src="../jump-climber/assets/%ED%96%84%EC%8A%A4%ED%84%B0%20%EB%A9%94%EC%9D%B8%20%EC%9D%B4%EB%AF%B8%EC%A7%80.png" alt="푸딩 햄스터" />
               <strong>푸딩 햄스터</strong>
               <span>pudding-hamster</span>
             </button>
             <button class="character-card" type="button" data-character="peach-chick">
-              <strong>피치 병아리</strong>
+              <img src="../jump-climber/assets/%EB%B3%91%EC%95%84%EB%A6%AC%20%EB%A9%94%EC%9D%B8%20%EC%9D%B4%EB%AF%B8%EC%A7%80.png" alt="말랑 병아리" />
+              <strong>말랑 병아리</strong>
               <span>peach-chick</span>
             </button>
           </div>
+
+          <p id="readyStatus" class="ready-status">상대 입장 대기 중...</p>
 
           <div class="setup-actions">
             <button id="tug-ready-btn" type="button" class="primary-action">Ready</button>
@@ -48,13 +53,32 @@
 
         <section class="panel play-panel">
           <div class="arena" aria-label="줄다리기 게임 화면">
-            <div class="tug-character tug-character--left">LEFT</div>
-            <div class="tug-character tug-character--right">RIGHT</div>
+            <div id="tugTimer" class="tug-timer">30s</div>
+
+            <div class="tug-character tug-character--left">
+              <span id="tugCharLeftYou" class="tug-you-badge" hidden>YOU</span>
+              <img id="tugCharLeft" alt="" />
+              <span id="tugCharLeftLabel" class="tug-name">대기 중</span>
+            </div>
+
+            <div class="tug-character tug-character--right">
+              <span id="tugCharRightYou" class="tug-you-badge" hidden>YOU</span>
+              <img id="tugCharRight" alt="" />
+              <span id="tugCharRightLabel" class="tug-name">대기 중</span>
+            </div>
+
             <div class="tug-rope" aria-hidden="true">
               <span></span>
             </div>
-            <div class="rhythm-ring-container">곧 시작합니다</div>
+
+            <div class="rhythm-ring-container">
+              <p id="rhythmHint">곧 시작합니다</p>
+            </div>
             <div class="judgement-popup" aria-live="polite"></div>
+
+            <div id="countdownOverlay" class="countdown-overlay">
+              <span id="countdownLabel">3</span>
+            </div>
           </div>
         </section>
       </section>
