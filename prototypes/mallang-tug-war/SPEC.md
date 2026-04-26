@@ -694,7 +694,53 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 - **DO hibernation에 대한 in-memory state 손실 (codex Critical)**: 현재 `tugWarGame`/setTimeout 모두 in-memory. 운영상 hibernation은 짧은 라운드(33초)에서 발생하기 어렵지만, 안전을 위해 Phase C에서 Cloudflare Alarms API + storage 미러링으로 전환 예정. jump-climber도 동일 패턴(setInterval/setTimeout)이라 통합 리팩터 후보.
 - `game.js`의 `sendSeq()` 정의됨, 호출처 없음 — Phase C에서 `TUG_TAP`/`TUG_ITEM_GRAB`에 사용 예정.
 
-### Phase C — 리듬 링 + TAP 판정 + ropePos (예정)
+### Phase C — 리듬 링 + TAP 판정 + ropePos ✅ 완료
+
+**구현 산출물**:
+- **`worker/src/room.js`**:
+  - 상수 `TUG_TICK_MS / TUG_KO_THRESHOLD / TUG_RHYTHM_CONFIG / TUG_PULL_POWER`
+  - `tugWarGame`에 `currentRing / nextRingId / nextRingSpawnAtMs / stats` 필드 추가
+  - 플레이어별 `stats` 초기화 (`perfects/goods/misses/totalPullContribution/longestPerfectStreak/currentPerfectStreak/itemsGrabbed`)
+  - `_serializeTugRing()` — 클라 송출용 ring 페이로드 (id/spawnedAt/centerAt/expiresAt). resolvedBy는 서버 권한이라 미송출.
+  - `_startTugWarLoop / _stopTugWarLoop / _tickTugWar` — 50ms tick. 만료 처리 + 다음 spawn 트리거 + 변경 시 STATE_SYNC.
+  - `_spawnTugRing` — `centerAt = spawnedAt + ringShrinkDurationMs`, `expiresAt = centerAt + goodWindowMs`. 이번 spawnedAt + ringIntervalMs를 다음 spawn 시각으로 저장 (등간격).
+  - `_handleTugWarTap` — phase/spectator 가드, ringId 일치 + resolvedBy 이중 판정 차단, 서버 도착 시각 vs `centerAt` 차이로 perfect/good/miss 판정 후 ropePos 갱신 + KO 체크 + `TUG_TAP_RESULT` 브로드캐스트. ring 없을 때 탭은 즉시 miss 응답.
+  - `_finishTugWarKO()` — `|ropePos| >= 1.0` 도달 시 즉시 종료, ropePos 부호로 winner 결정, `TUG_GAME_END(reason: 'ko')` 브로드캐스트. ring loop 정지.
+  - `_finishTugWarTimeout()` / abandoned 분기에서도 `_stopTugWarLoop()` + `_broadcastTugGameEnd(reason)` 헬퍼 사용 (stats 포함).
+  - `_tugWarBeginRound()`에서 `_startTugWarLoop()` 호출 + 첫 ring은 ringInterval만큼 지연 후 등장.
+
+- **`prototypes/mallang-tug-war/game.js`**:
+  - 상수 `TUG_RHYTHM_CONFIG / TUG_PULL_POWER` (서버와 일치)
+  - `state.currentRing / serverClockOffsetMs / resolvedRingIds / lastJudgement` 추가
+  - `applyStateSync()`: `serverTimeMs - clientNow`로 clock offset 갱신, `currentRing` 미러, ring id 바뀌면 resolvedRingIds 청소
+  - `handleTapResult()`: 서버 권위 ropePos로 정정 + `showJudgement()`로 판정 텍스트 표시
+  - `renderRope()`: ropePos를 캐릭터/줄 마커의 translateX로 매핑 (`arenaWidth * 0.32 * ropePos`)
+  - `renderRing()`: 매 프레임 호출. 가이드(고정 86px 원) + 수축 원(scale 2.0 → 1.0 → 0.4)을 server clock 기준 진행도로 렌더. 퍼펙트 윈도우 진입 시 가이드 글로우.
+  - `predictJudgement()` + `handleTapInput()`: 낙관적 판정 즉시 표시 + 낙관적 ropePos 적용 후 `TUG_TAP` 송신. 서버 응답이 권위.
+  - `localTick()`이 매 프레임 `renderRing()` 호출 + 타이머만 직접 갱신 (renderPlay 전체 호출 안 함 — 성능)
+  - `arena.pointerdown` + `Space` 키로 탭 입력 (UI 요소는 `data-no-tap`/closest로 제외)
+
+- **`prototypes/mallang-tug-war/index.html`**: 리듬 컨테이너에 `#rhythmGuide` + `#rhythmShrink` div 추가, hint에 `data-no-tap`.
+
+- **`prototypes/mallang-tug-war/style.css`**:
+  - `.rhythm-ring-container` 200×200 원형 영역, `.rhythm-guide` 86px 고정 가이드, `.rhythm-shrink`는 transform: scale 변화로 수축
+  - `.rhythm-guide.is-perfect` 글로우 효과
+  - `.judgement-popup.is-active` 0.6초 키프레임 애니메이션 (퍼펙트=골드, good=흰, miss=핑크)
+  - `.tug-character` / `.tug-rope span` transform transition 120ms / 90ms (ropePos 변화 부드럽게)
+
+**디자인 선택**:
+- 서버는 클라가 보낸 `clientTapAt` 무시 — 도착 시각만 본다. RTT 보정(SPEC line 327)은 후속. 단순화로 검증 우선.
+- 자동 miss(미응답 ring)는 ropePos 영향 없음 — 통계만 갱신. SPEC v0.6에 명시 (penalty는 의도적으로 약하게).
+- `serverClockOffsetMs`는 단순 sample (`serverTimeMs - clientNow`). RTT 절반 보정 안 함.
+- 클라 낙관적 ropePos는 서버 정정 시 transform transition으로 자연스럽게 보간.
+- ring spawn은 `setInterval(50ms)` tick 기반 — DO hibernation 위험은 Phase B에서 명시한 것과 동일 (후속 alarm 전환 후보).
+
+**Phase C에서 미해결로 남긴 이슈 (Phase D 시 처리)**:
+- 줄 시각 상태 레이어 `RopeVisualState (tension/wobble/stretch)` 미구현 — Phase D.
+- `classifyRopeState` 5단계 캐릭터 모션 자동 전환 미구현 — Phase D.
+- 페이즈 2(클러치) 시각/룰 변화 미구현 — Phase D.
+- RTT 보정 (`clientTapAt` + ping/pong 기반 clock sync) 미구현 — 후속.
+- Cloudflare Alarms 전환 미구현 — 후속.
 
 ### Phase D — 줄 시각화(tension/wobble/stretch) + 5단계 상태 모션 + 페이즈 2 연출 (예정)
 
@@ -766,6 +812,10 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 ---
 
 ## 변경 이력
+
+### v0.7 (Phase C 완료)
+
+**Phase C**: 리듬 링 스폰 루프(50ms tick), 서버 권위 TAP 판정(perfect 120ms / good 280ms / miss), ropePos 업데이트(perfect ±0.040 / good ±0.018 / miss -0.005), KO(`|ropePos|≥1.0`) 즉시 종료, 클라 낙관적 판정 + ropePos 보정. 자동 miss는 ropePos 영향 없이 통계만 기록. ring 시각화는 가이드 원 + 수축 원의 scale transition. 판정 popup 0.6초 키프레임. 줄/캐릭터는 ropePos에 따라 transform translateX 평행 이동.
 
 ### v0.6 (Phase B codex 리뷰 반영)
 

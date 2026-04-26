@@ -19,6 +19,20 @@ function characterAssetPath(characterId) {
   return `../jump-climber/assets/${encodeURIComponent(meta.asset)}`;
 }
 
+// === 리듬/풀 상수 (서버 SPEC v0.6과 일치) ===
+const TUG_RHYTHM_CONFIG = {
+  ringIntervalMs: 900,
+  ringShrinkDurationMs: 700,
+  perfectWindowMs: 120,
+  goodWindowMs: 280,
+};
+
+const TUG_PULL_POWER = {
+  perfect: 0.040,
+  good: 0.018,
+  miss: -0.005,
+};
+
 // === 클라 상태 (서버 권위 상태의 미러) ===
 const state = {
   phase: 'waiting',
@@ -32,6 +46,11 @@ const state = {
   iAmReady: false,
   winnerId: null,
   endReason: null,
+  // Phase C: 리듬 링 + 서버 시각 보정 + 마지막 판정 텍스트
+  currentRing: null,             // { id, spawnedAt, centerAt, expiresAt }
+  serverClockOffsetMs: 0,        // serverTimeMs - clientNow (로컬 ring 진행도 계산용)
+  resolvedRingIds: new Set(),    // 이미 탭한 ring (이중 탭 차단)
+  lastJudgement: null,           // { judgement, at, byPlayerId }
 };
 
 // === DOM 캐시 ===
@@ -114,7 +133,7 @@ function handleMessage(msg) {
       applyStateSync(msg.state);
       break;
     case 'TUG_TAP_RESULT':
-      // TODO: Phase C
+      handleTapResult(msg);
       break;
     case 'TUG_ITEM_RESULT':
       // TODO: Phase E
@@ -125,6 +144,21 @@ function handleMessage(msg) {
     case 'error':
       showToast(msg.message || '오류가 발생했습니다.');
       break;
+  }
+}
+
+function handleTapResult(msg) {
+  // 서버 권위 — ropePos는 서버 값으로 정정 (낙관적 예측 보정)
+  if (Number.isFinite(msg.newRopePos)) {
+    state.ropePos = msg.newRopePos;
+    renderRope();
+  }
+  // 상대 입력 표시 (자기 자신은 즉시 예측에서 이미 표시됨)
+  if (msg.playerId !== myPlayerId) {
+    showJudgement(msg.judgement, msg.playerId);
+  } else {
+    // 내 판정도 한 번 더 권위로 갱신 (예측 불일치 시 보정)
+    showJudgement(msg.judgement, msg.playerId);
   }
 }
 
@@ -141,6 +175,19 @@ function applyStateSync(serverState) {
   state.players = Array.isArray(serverState.players) ? serverState.players : [];
   state.winnerId = serverState.winnerId ?? null;
   state.endReason = serverState.endReason ?? null;
+
+  // 서버 시각 오프셋 — ring 진행도/판정 예측에 사용 (단순 sample, RTT 절반 미보정).
+  if (Number.isFinite(serverState.serverTimeMs)) {
+    state.serverClockOffsetMs = serverState.serverTimeMs - Date.now();
+  }
+
+  // currentRing 미러. id가 바뀌면 resolvedRingIds 청소.
+  const incomingRing = serverState.currentRing || null;
+  const prevRingId = state.currentRing?.id || null;
+  state.currentRing = incomingRing;
+  if (prevRingId && prevRingId !== (incomingRing?.id || null)) {
+    state.resolvedRingIds.delete(prevRingId);
+  }
 
   const me = state.players.find((p) => p.id === myPlayerId);
   if (me) {
@@ -273,10 +320,137 @@ function renderPlay() {
 
   const hint = dom.rhythmHint();
   if (hint) {
-    hint.textContent = state.phase === 'playing'
-      ? '리듬 링은 Phase C에서 등장합니다'
-      : '곧 시작합니다';
+    if (state.phase === 'playing') {
+      hint.textContent = state.currentRing ? '탭!' : '대기...';
+    } else {
+      hint.textContent = '곧 시작합니다';
+    }
   }
+
+  renderRope();
+}
+
+// 줄 위치 시각화 — ropePos에 따라 캐릭터/줄 마커를 평행 이동.
+// ropePos > 0 (left 우세) → 양쪽 모두 right 방향으로 이동 (right가 화면 끝쪽으로 끌려감 효과)
+function renderRope() {
+  const arena = document.querySelector('.arena');
+  if (!arena) return;
+  const arenaWidth = arena.clientWidth || 360;
+  const offsetPx = state.ropePos * arenaWidth * 0.32;
+
+  const charLeftWrap = document.querySelector('.tug-character--left');
+  const charRightWrap = document.querySelector('.tug-character--right');
+  const ropeMark = document.querySelector('.tug-rope span');
+
+  if (charLeftWrap) charLeftWrap.style.transform = `translateX(${offsetPx}px)`;
+  if (charRightWrap) charRightWrap.style.transform = `translateX(${offsetPx}px)`;
+  if (ropeMark) ropeMark.style.transform = `translate(calc(-50% + ${offsetPx}px), -50%)`;
+}
+
+// 리듬 링 시각화 — 매 프레임 호출. 가이드(고정 작은 원) + 수축 링(큰 → 작아짐).
+// SVG 없이 div 두 개의 width/height transition으로 표현.
+function renderRing() {
+  const guide = document.getElementById('rhythmGuide');
+  const shrink = document.getElementById('rhythmShrink');
+  const container = document.getElementById('rhythmRing');
+  if (!container || !guide || !shrink) return;
+
+  if (state.phase !== 'playing' || !state.currentRing) {
+    container.classList.remove('is-active');
+    shrink.style.transform = 'translate(-50%, -50%) scale(2)';
+    shrink.style.opacity = '0';
+    return;
+  }
+
+  container.classList.add('is-active');
+  const ring = state.currentRing;
+  const serverNow = Date.now() + state.serverClockOffsetMs;
+  const total = ring.centerAt - ring.spawnedAt;
+  let t;
+  if (serverNow <= ring.spawnedAt) t = 0;
+  else if (serverNow >= ring.expiresAt) t = 1.4;
+  else if (serverNow <= ring.centerAt) t = (serverNow - ring.spawnedAt) / total;
+  else {
+    // centerAt 이후 — good window 동안 가이드 안쪽으로 사그라듦
+    const tail = (serverNow - ring.centerAt) / (ring.expiresAt - ring.centerAt);
+    t = 1 + tail * 0.4;
+  }
+
+  // t=0: 큰 외곽(scale 2.0) / t=1: 가이드와 일치(scale 1.0) / t>1: 안쪽(scale<1)
+  const scale = Math.max(0.4, 2 - t);
+  shrink.style.transform = `translate(-50%, -50%) scale(${scale})`;
+  shrink.style.opacity = String(Math.max(0, 1 - Math.max(0, t - 1) / 0.4));
+
+  // 퍼펙트 윈도우 근처에서 가이드 글로우
+  const delta = Math.abs(serverNow - ring.centerAt);
+  if (delta <= TUG_RHYTHM_CONFIG.perfectWindowMs) {
+    guide.classList.add('is-perfect');
+  } else {
+    guide.classList.remove('is-perfect');
+  }
+}
+
+// 판정 텍스트 popup — 0.6초 fade.
+function showJudgement(judgement, byPlayerId) {
+  const popup = document.querySelector('.judgement-popup');
+  if (!popup) return;
+  const isMine = byPlayerId === myPlayerId;
+  const text = judgement === 'perfect'
+    ? 'PERFECT!'
+    : judgement === 'good'
+      ? 'GOOD'
+      : 'MISS';
+  popup.textContent = text;
+  popup.dataset.judgement = judgement;
+  popup.dataset.owner = isMine ? 'me' : 'opp';
+  popup.classList.remove('is-active');
+  // reflow → re-trigger CSS animation
+  void popup.offsetWidth;
+  popup.classList.add('is-active');
+}
+
+// 클라 낙관적 판정 — 서버 응답 전 즉시 텍스트 표시. 결과는 TUG_TAP_RESULT가 권위.
+function predictJudgement(ring, tapNow) {
+  const delta = Math.abs(tapNow - ring.centerAt);
+  if (delta <= TUG_RHYTHM_CONFIG.perfectWindowMs) return 'perfect';
+  if (delta <= TUG_RHYTHM_CONFIG.goodWindowMs) return 'good';
+  return 'miss';
+}
+
+// 탭 핸들러 — playing이고 currentRing이 있고 아직 안 탭한 경우 송신 + 즉시 표시.
+function handleTapInput(event) {
+  if (state.phase !== 'playing') return;
+  if (myRole === 'spectator') return;
+  if (!myPlayerId) return;
+  if (event && event.target && event.target.closest('button, input, [data-no-tap]')) return;
+
+  const ring = state.currentRing;
+  const clientNow = Date.now();
+  const serverNow = clientNow + state.serverClockOffsetMs;
+
+  if (!ring) {
+    // 활성 ring 없을 때 탭 — 서버에 전달, 표시도 miss
+    sendSeq({ type: 'TUG_TAP', ringId: null, clientTapAt: clientNow });
+    showJudgement('miss', myPlayerId);
+    return;
+  }
+
+  if (state.resolvedRingIds.has(ring.id)) return; // 한 ring 한 탭
+
+  state.resolvedRingIds.add(ring.id);
+  const predicted = predictJudgement(ring, serverNow);
+  showJudgement(predicted, myPlayerId);
+
+  // 낙관적 ropePos 살짝 적용 — 서버 정정으로 부드럽게 보간됨
+  const me = state.players.find((p) => p.id === myPlayerId);
+  if (me) {
+    const power = TUG_PULL_POWER[predicted] || 0;
+    const signed = me.side === 'right' ? -power : power;
+    state.ropePos = Math.max(-1, Math.min(1, state.ropePos + signed));
+    renderRope();
+  }
+
+  sendSeq({ type: 'TUG_TAP', ringId: ring.id, clientTapAt: clientNow });
 }
 
 function paintCharacterSlot(imgEl, labelEl, youEl, player) {
@@ -307,8 +481,15 @@ function localTick(now) {
     renderPlay();
   } else if (state.phase === 'playing' && state.timeLeftMs > 0) {
     state.timeLeftMs = Math.max(0, state.timeLeftMs - dt);
-    renderPlay();
+    // ring/timer만 매 프레임 갱신. 캐릭터/줄은 ropePos 변화 시점에 renderRope()로 따로.
+    const timer = dom.timerLabel();
+    if (timer) timer.textContent = `${Math.max(0, Math.ceil(state.timeLeftMs / 1000))}s`;
   }
+
+  if (state.phase === 'playing') {
+    renderRing();
+  }
+
   requestAnimationFrame(localTick);
 }
 
@@ -366,9 +547,23 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // 화면 어디든 탭 → 리듬 판정 (단, 캐릭터 카드/Ready 버튼/UI 요소는 제외)
+  const arena = document.querySelector('.arena');
+  if (arena) {
+    arena.addEventListener('pointerdown', (e) => {
+      // 카운트다운 중에는 무시
+      if (state.phase !== 'playing') return;
+      handleTapInput(e);
+    });
+  }
+  // 키보드 탭 (Space) — 데스크톱 테스트 편의용
+  document.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space') return;
+    if (state.phase !== 'playing') return;
+    e.preventDefault();
+    handleTapInput(e);
+  });
+
   connect();
   requestAnimationFrame(localTick);
 });
-
-// 미사용 변수 경고 무시 — Phase C에서 sendSeq가 TUG_TAP/TUG_ITEM_GRAB에 쓰임
-void sendSeq;

@@ -229,6 +229,11 @@ h2 {
   height: 20px;
   transform: translateY(-50%);
   z-index: 1;
+  transition: none;
+}
+
+.tug-rope span {
+  transition: transform 90ms ease-out;
 }
 
 .tug-rope::before {
@@ -259,6 +264,7 @@ h2 {
   justify-items: center;
   gap: 4px;
   z-index: 2;
+  transition: transform 120ms ease-out;
 }
 
 .tug-character img {
@@ -301,32 +307,109 @@ h2 {
 .rhythm-ring-container {
   position: absolute;
   left: 50%;
-  bottom: 72px;
-  width: min(72%, 270px);
-  min-height: 112px;
-  display: grid;
-  place-items: center;
-  border: 2px dashed rgba(240, 109, 47, 0.35);
-  border-radius: 8px;
-  background: rgba(255, 250, 243, 0.76);
+  bottom: 56px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: rgba(255, 250, 243, 0.42);
   color: var(--accent-strong);
   font-weight: 900;
   transform: translateX(-50%);
   text-align: center;
-  padding: 8px 12px;
   z-index: 2;
+}
+
+.rhythm-ring-container.is-active {
+  background: rgba(255, 250, 243, 0.18);
+}
+
+#rhythmHint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--accent-strong);
+  pointer-events: none;
+}
+
+.rhythm-guide {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  border: 4px solid rgba(240, 109, 47, 0.65);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: box-shadow 90ms ease-out, border-color 90ms ease-out;
+}
+
+.rhythm-guide.is-perfect {
+  border-color: #ffd049;
+  box-shadow: 0 0 0 4px rgba(255, 208, 73, 0.45), 0 0 24px rgba(255, 208, 73, 0.65);
+}
+
+.rhythm-shrink {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  border: 4px solid rgba(255, 255, 255, 0.92);
+  background: rgba(240, 109, 47, 0.18);
+  transform: translate(-50%, -50%) scale(2);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 60ms linear;
 }
 
 .judgement-popup {
   position: absolute;
   left: 50%;
-  top: 26%;
+  top: 22%;
   min-height: 32px;
   color: #f06d2f;
-  font-size: 1.4rem;
+  font-size: 1.6rem;
   font-weight: 900;
+  letter-spacing: 0.04em;
   transform: translateX(-50%);
   z-index: 3;
+  opacity: 0;
+  text-shadow: 0 4px 12px rgba(47, 33, 24, 0.35);
+  pointer-events: none;
+}
+
+.judgement-popup.is-active {
+  animation: judgement-pop 600ms ease-out forwards;
+}
+
+.judgement-popup[data-judgement="perfect"] {
+  color: #ffb938;
+}
+
+.judgement-popup[data-judgement="good"] {
+  color: #fff;
+}
+
+.judgement-popup[data-judgement="miss"] {
+  color: #d0467c;
+}
+
+.judgement-popup[data-owner="opp"] {
+  font-size: 1.1rem;
+  top: 14%;
+  opacity: 0.8;
+}
+
+@keyframes judgement-pop {
+  0%   { transform: translateX(-50%) scale(0.6); opacity: 0; }
+  18%  { transform: translateX(-50%) scale(1.18); opacity: 1; }
+  60%  { transform: translateX(-50%) scale(1.0); opacity: 1; }
+  100% { transform: translateX(-50%) scale(0.95); opacity: 0; }
 }
 
 .countdown-overlay {

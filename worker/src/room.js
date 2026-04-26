@@ -89,6 +89,23 @@ const TUG_DEFAULT_CHARACTER = 'mochi-rabbit';
 const TUG_DURATION_MS = 30000;
 const TUG_COUNTDOWN_SECONDS = 3;
 const TUG_PLAYER_COUNT = 2;
+const TUG_TICK_MS = 50;
+const TUG_KO_THRESHOLD = 1.0;
+
+// 리듬 링 + 풀 파워 — SPEC v0.6 라운드 구조 (페이즈 1 정상값).
+// Phase D에서 페이즈 2(클러치) 값으로 동적 전환 예정.
+const TUG_RHYTHM_CONFIG = {
+  ringIntervalMs: 900,
+  ringShrinkDurationMs: 700,
+  perfectWindowMs: 120,
+  goodWindowMs: 280,
+};
+
+const TUG_PULL_POWER = {
+  perfect: 0.040,
+  good: 0.018,
+  miss: -0.005,
+};
 
 function sanitizeTugCharacterId(characterId, fallback = TUG_DEFAULT_CHARACTER) {
   return TUG_CHARACTERS.includes(characterId) ? characterId : fallback;
@@ -943,9 +960,14 @@ export class GameRoom {
       winnerId: null,
       endReason: null,
       // 라운드별 토큰 — 늦게 도착한 setTimeout이 새 라운드를 침범하지 못하게 race guard.
-      // 주의: in-memory만 — DO hibernation 시 setTimeout과 함께 손실됨. Phase C에서 Alarms API로 전환 예정.
+      // 주의: in-memory만 — DO hibernation 시 setTimeout과 함께 손실됨. Cloudflare Alarms API 전환은 후속.
       countdownToken: null,
       roundToken: null,
+      // 리듬 링 + 통계
+      currentRing: null,
+      nextRingId: 1,
+      nextRingSpawnAtMs: 0,
+      stats: {},
     };
     game.roster.forEach(({ id, name, side }) => {
       game.players[id] = {
@@ -955,6 +977,15 @@ export class GameRoom {
         characterId: TUG_DEFAULT_CHARACTER,
         ready: false,
         connected: false,
+      };
+      game.stats[id] = {
+        perfects: 0,
+        goods: 0,
+        misses: 0,
+        itemsGrabbed: 0,
+        totalPullContribution: 0,
+        longestPerfectStreak: 0,
+        currentPerfectStreak: 0,
       };
     });
     this.tugWarGame = game;
@@ -984,7 +1015,18 @@ export class GameRoom {
       players: game.roster.map(({ id }) => ({ ...game.players[id] })),
       winnerId: game.winnerId,
       endReason: game.endReason,
+      currentRing: game.currentRing ? this._serializeTugRing(game.currentRing) : null,
       serverTimeMs: Date.now(),
+    };
+  }
+
+  _serializeTugRing(ring) {
+    // resolvedBy는 클라가 알 필요 없으므로 제외 (이중 판정 방지는 서버 권한)
+    return {
+      id: ring.id,
+      spawnedAt: ring.spawnedAt,
+      centerAt: ring.centerAt,
+      expiresAt: ring.expiresAt,
     };
   }
 
@@ -1075,11 +1117,76 @@ export class GameRoom {
     this.tugWarGame.phase = 'playing';
     this.tugWarGame.startedAt = Date.now();
     this.tugWarGame.countdownEndsAt = null;
+    // 첫 링은 첫 spawn interval만큼 지연 후 등장 — 시작 직후 갑자기 링이 떠 있는 어색함 회피.
+    this.tugWarGame.nextRingSpawnAtMs = Date.now() + TUG_RHYTHM_CONFIG.ringIntervalMs;
+    this.tugWarGame.currentRing = null;
     const roundToken = randomHex(8);
     this.tugWarGame.roundToken = roundToken;
     this._broadcastTugWarStateSync();
-    // Phase C: rhythm ring spawn loop가 추가됨. 현재는 30초 만료만 처리.
+    this._startTugWarLoop();
     setTimeout(() => this._tugWarRoundTimeout(roundToken), TUG_DURATION_MS);
+  }
+
+  _startTugWarLoop() {
+    if (this.tugWarLoop) clearInterval(this.tugWarLoop);
+    this.tugWarLoop = setInterval(() => this._tickTugWar(), TUG_TICK_MS);
+  }
+
+  _stopTugWarLoop() {
+    if (this.tugWarLoop) {
+      clearInterval(this.tugWarLoop);
+      this.tugWarLoop = null;
+    }
+  }
+
+  _tickTugWar() {
+    const game = this.tugWarGame;
+    if (!game || game.phase !== 'playing') {
+      this._stopTugWarLoop();
+      return;
+    }
+
+    const now = Date.now();
+    let dirty = false;
+
+    // 활성 ring 만료 처리
+    if (game.currentRing && now >= game.currentRing.expiresAt) {
+      // 양 플레이어 중 응답 안 한 사람은 자동 miss로 기록 (penalty 없는 단순 통계용 — ropePos 변동 없음)
+      for (const player of Object.values(game.players)) {
+        if (!game.currentRing.resolvedBy[player.id]) {
+          game.currentRing.resolvedBy[player.id] = 'miss';
+          // 통계만 업데이트 (자동 miss는 ropePos 영향 없음 — 의도적 공백)
+        }
+      }
+      game.currentRing = null;
+      dirty = true;
+    }
+
+    // 새 ring 스폰
+    if (!game.currentRing && now >= game.nextRingSpawnAtMs) {
+      this._spawnTugRing(now);
+      // 다음 스폰 시각은 이번 spawnedAt + ringIntervalMs (등간격 유지)
+      game.nextRingSpawnAtMs = game.currentRing.spawnedAt + TUG_RHYTHM_CONFIG.ringIntervalMs;
+      dirty = true;
+    }
+
+    if (dirty) this._broadcastTugWarStateSync();
+  }
+
+  _spawnTugRing(now) {
+    const game = this.tugWarGame;
+    if (!game) return;
+    const id = `ring-${game.nextRingId++}`;
+    const spawnedAt = now;
+    const centerAt = spawnedAt + TUG_RHYTHM_CONFIG.ringShrinkDurationMs;
+    const expiresAt = centerAt + TUG_RHYTHM_CONFIG.goodWindowMs;
+    game.currentRing = {
+      id,
+      spawnedAt,
+      centerAt,
+      expiresAt,
+      resolvedBy: {},
+    };
   }
 
   _tugWarRoundTimeout(token) {
@@ -1094,7 +1201,9 @@ export class GameRoom {
     game.roundToken = null;
     game.phase = 'finished';
     game.endReason = 'timeout';
-    // 시간 종료 — ropePos 부호로 승자 결정. Phase B에서는 ropePos가 항상 0이므로 무승부.
+    game.currentRing = null;
+    this._stopTugWarLoop();
+    // 시간 종료 — ropePos 부호로 승자 결정. ropePos==0이면 무승부.
     if (game.ropePos > 0) {
       const left = Object.values(game.players).find((p) => p.side === 'left');
       game.winnerId = left?.id || null;
@@ -1104,18 +1213,120 @@ export class GameRoom {
     } else {
       game.winnerId = null;
     }
-    this._broadcastGame({
-      type: 'TUG_GAME_END',
-      reason: 'timeout',
-      winnerId: game.winnerId,
-      finalRopePos: game.ropePos,
-      stats: {},
-    }, 'mallang-tug-war');
+    this._broadcastTugGameEnd('timeout');
     this._broadcastTugWarStateSync();
   }
 
+  _finishTugWarKO() {
+    const game = this.tugWarGame;
+    if (!game || game.phase !== 'playing') return;
+    game.roundToken = null;
+    game.phase = 'finished';
+    game.endReason = 'ko';
+    game.currentRing = null;
+    this._stopTugWarLoop();
+    // |ropePos| >= 1.0 도달 — 부호 기준으로 승자 결정. ropePos > 0 이면 left가 승.
+    if (game.ropePos >= TUG_KO_THRESHOLD) {
+      const left = Object.values(game.players).find((p) => p.side === 'left');
+      game.winnerId = left?.id || null;
+    } else {
+      const right = Object.values(game.players).find((p) => p.side === 'right');
+      game.winnerId = right?.id || null;
+    }
+    this._broadcastTugGameEnd('ko');
+    this._broadcastTugWarStateSync();
+  }
+
+  _broadcastTugGameEnd(reason) {
+    const game = this.tugWarGame;
+    if (!game) return;
+    this._broadcastGame({
+      type: 'TUG_GAME_END',
+      reason,
+      winnerId: game.winnerId,
+      finalRopePos: game.ropePos,
+      stats: { ...game.stats },
+    }, 'mallang-tug-war');
+  }
+
   _handleTugWarTap(player, msg) {
-    // TODO: Phase C에서 리듬 판정 + ropePos 업데이트
+    const game = this.tugWarGame;
+    if (!game || game.phase !== 'playing') return;
+    if (player.isSpectator) return;
+    const target = game.players[player.id];
+    if (!target) return;
+
+    const ring = game.currentRing;
+    if (!ring) {
+      // 활성 ring 없을 때 탭 — 미스 텍스트만 즉시 회신 (ropePos 영향 없음, 통계 미스)
+      this._applyTugTapStats(player.id, 'miss');
+      this._broadcastGame({
+        type: 'TUG_TAP_RESULT',
+        ringId: null,
+        playerId: player.id,
+        judgement: 'miss',
+        ropeDelta: 0,
+        newRopePos: game.ropePos,
+        clientSeq: Number.isFinite(msg.clientSeq) ? msg.clientSeq : null,
+      }, 'mallang-tug-war');
+      return;
+    }
+
+    // ringId 검증 — 클라가 다음 ring을 alias 보낸 경우 거부
+    if (msg.ringId && msg.ringId !== ring.id) return;
+    if (ring.resolvedBy[player.id]) return; // 이중 판정 방지
+
+    // 서버 도착 시각으로 판정 (RTT 보정은 후속 — 현재는 단순화).
+    const now = Date.now();
+    const delta = Math.abs(now - ring.centerAt);
+    let judgement;
+    if (delta <= TUG_RHYTHM_CONFIG.perfectWindowMs) judgement = 'perfect';
+    else if (delta <= TUG_RHYTHM_CONFIG.goodWindowMs) judgement = 'good';
+    else judgement = 'miss';
+
+    ring.resolvedBy[player.id] = judgement;
+
+    let ropeDelta = TUG_PULL_POWER[judgement] ?? 0;
+    // side가 left면 양수 방향, right이면 음수 방향으로 적용 (ropePos > 0이면 left 우세)
+    if (target.side === 'right') ropeDelta = -ropeDelta;
+
+    game.ropePos = clamp(game.ropePos + ropeDelta, -1, 1);
+    this._applyTugTapStats(player.id, judgement, ropeDelta);
+
+    this._broadcastGame({
+      type: 'TUG_TAP_RESULT',
+      ringId: ring.id,
+      playerId: player.id,
+      judgement,
+      ropeDelta,
+      newRopePos: game.ropePos,
+      clientSeq: Number.isFinite(msg.clientSeq) ? msg.clientSeq : null,
+    }, 'mallang-tug-war');
+
+    // KO 체크
+    if (Math.abs(game.ropePos) >= TUG_KO_THRESHOLD) {
+      this._finishTugWarKO();
+      return;
+    }
+
+    this._broadcastTugWarStateSync();
+  }
+
+  _applyTugTapStats(playerId, judgement, ropeDelta = 0) {
+    const stats = this.tugWarGame?.stats?.[playerId];
+    if (!stats) return;
+    if (judgement === 'perfect') {
+      stats.perfects += 1;
+      stats.currentPerfectStreak += 1;
+      stats.longestPerfectStreak = Math.max(stats.longestPerfectStreak, stats.currentPerfectStreak);
+    } else if (judgement === 'good') {
+      stats.goods += 1;
+      stats.currentPerfectStreak = 0;
+    } else {
+      stats.misses += 1;
+      stats.currentPerfectStreak = 0;
+    }
+    stats.totalPullContribution += Math.abs(ropeDelta);
   }
 
   _handleTugWarItemGrab(player, msg) {
@@ -1313,6 +1524,7 @@ export class GameRoom {
     this.jumpGame = null;
     this._stopJumpLoop();
     this.tugWarGame = null;
+    this._stopTugWarLoop();
     await this.state.storage.put('phase', 'countdown');
     for (const seconds of [3, 2, 1]) {
       this._broadcastAll({ type: 'countdown', seconds });
@@ -1347,6 +1559,7 @@ export class GameRoom {
     this.jumpGame = null;
     this._stopJumpLoop();
     this.tugWarGame = null;
+    this._stopTugWarLoop();
     // Reset player votes
     for (const { ws, player } of this._getLobbySessions()) {
       ws.serializeAttachment({ ...player, gameVote: null, startVote: false });
@@ -1400,15 +1613,11 @@ export class GameRoom {
           this.tugWarGame.roundToken = null;
           this.tugWarGame.phase = 'finished';
           this.tugWarGame.endReason = 'abandoned';
+          this.tugWarGame.currentRing = null;
+          this._stopTugWarLoop();
           const survivor = Object.values(this.tugWarGame.players).find((p) => p.connected);
           this.tugWarGame.winnerId = survivor?.id || null;
-          this._broadcastGame({
-            type: 'TUG_GAME_END',
-            reason: 'abandoned',
-            winnerId: this.tugWarGame.winnerId,
-            finalRopePos: this.tugWarGame.ropePos,
-            stats: {},
-          }, 'mallang-tug-war');
+          this._broadcastTugGameEnd('abandoned');
         }
         this._broadcastTugWarStateSync();
       }
