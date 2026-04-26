@@ -550,6 +550,7 @@ function renderResult() {
 }
 
 // Phase E-3: 명장면 회상 — 본인 stats 기반 자동 문구 (SPEC line 565~574). 화면당 2~3개만.
+// priority가 큰 후보부터 노출 — slice(0,3)에 의해 임팩트 큰 줄이 잘리지 않게 정렬.
 function renderHighlightReel() {
   const reelEl = document.getElementById('highlightReel');
   if (!reelEl) return;
@@ -558,64 +559,68 @@ function renderHighlightReel() {
   const myStats = state.stats?.[myPlayerId];
   const isWinner = state.winnerId && state.winnerId === myPlayerId;
   const isDraw = state.endReason === 'timeout' && !state.winnerId;
-  const candidates = [];
+  const candidates = []; // { text, priority } — priority 큰 순으로 정렬.
 
-  // 무승부 — 우선 처리.
+  // 무승부.
   if (isDraw) {
-    candidates.push('막상막하! 한 판 더?');
+    candidates.push({ text: '막상막하! 한 판 더?', priority: 60 });
   }
 
   if (myStats) {
-    // KO 승리 + 한때 위기였음 (worstRopePos > 0.7).
+    // KO 결정 시점이 종료 직전 1초 — 가장 임팩트 큼.
+    if (isWinner && state.endReason === 'ko' && Number.isFinite(myStats.finalBlowAt)) {
+      const finalMs = myStats.finalBlowAt;
+      const leftover = state.durationMs - finalMs;
+      if (leftover > 0 && leftover <= 1000) {
+        const lefts = Math.round(leftover);
+        candidates.push({ text: `${lefts}ms 남기고 KO!`, priority: 100 });
+      }
+      // 라운드 마지막 3초 (1초 이내 케이스보다 우선순위 낮음).
+      else if (leftover > 0 && leftover <= 3000) {
+        const remainingSec = Math.round((leftover / 1000) * 10) / 10;
+        candidates.push({ text: `마지막 ${remainingSec.toFixed(1)}초 Perfect Pull로 결정!`, priority: 90 });
+      }
+    }
+    // comeback 후 승리 — 매우 임팩트.
+    if (isWinner && (myStats.comebackFromRopePos || 0) >= 0.7) {
+      candidates.push({
+        text: `최대 위기 ${(myStats.comebackFromRopePos).toFixed(2)}에서 comeback!`,
+        priority: 95,
+      });
+    }
+    // KO 승리 + 한때 위기였음.
     if (isWinner && state.endReason === 'ko' && (myStats.worstRopePos || 0) > 0.7) {
       const dangerSec = Math.round(((myStats.timeInDangerMs || 0) / 1000) * 10) / 10;
-      candidates.push(`발끝에서 ${dangerSec.toFixed(1)}초 버티고 역전!`);
-    }
-    // comeback 후 승리.
-    if (isWinner && (myStats.comebackFromRopePos || 0) >= 0.7) {
-      candidates.push(`최대 위기 ${(myStats.comebackFromRopePos).toFixed(2)}에서 comeback!`);
+      candidates.push({ text: `발끝에서 ${dangerSec.toFixed(1)}초 버티고 역전!`, priority: 80 });
     }
     // 찌부 생존.
     if ((myStats.timeInDangerMs || 0) > 3000) {
       const sec = Math.round((myStats.timeInDangerMs / 1000) * 10) / 10;
-      candidates.push(`찌부 상태 ${sec.toFixed(1)}초 생존!`);
+      candidates.push({ text: `찌부 상태 ${sec.toFixed(1)}초 생존!`, priority: 70 });
     }
     // 연속 Perfect.
     if ((myStats.longestPerfectStreak || 0) >= 4) {
-      candidates.push(`최고 연속 Perfect ${myStats.longestPerfectStreak}!`);
+      candidates.push({
+        text: `최고 연속 Perfect ${myStats.longestPerfectStreak}!`,
+        priority: 75,
+      });
     }
-    // KO 결정 시점이 페이즈 2 마지막 3초.
-    if (isWinner && state.endReason === 'ko' && Number.isFinite(myStats.finalBlowAt)) {
-      const finalMs = myStats.finalBlowAt;
-      // 라운드 마지막 3초: durationMs - 3000 ~ durationMs.
-      if (finalMs >= state.durationMs - 3000) {
-        const remaining = Math.max(0, state.durationMs - finalMs);
-        const remainingSec = Math.round((remaining / 1000) * 10) / 10;
-        candidates.push(`마지막 ${remainingSec.toFixed(1)}초 Perfect Pull로 결정!`);
-      }
-      // 게임 종료 직전 1초.
-      if (state.durationMs - finalMs <= 1000 && state.durationMs - finalMs > 0) {
-        const ms = Math.max(0, Math.round(state.durationMs - finalMs));
-        candidates.push(`0.${String(ms).padStart(3, '0').slice(0, 2)}초 남기고 KO!`);
-      }
-    }
-    // 정확도 (높은 perfect 비율) — 기본 통계 추가.
+    // 정확도 — 보너스 통계.
     const taps = (myStats.perfects || 0) + (myStats.goods || 0) + (myStats.misses || 0);
-    if (taps >= 10 && taps > 0) {
+    if (taps >= 10) {
       const accuracy = Math.round(((myStats.perfects || 0) / taps) * 100);
-      if (accuracy >= 70 && candidates.length < 3) {
-        candidates.push(`정확도 ${accuracy}%`);
+      if (accuracy >= 70) {
+        candidates.push({ text: `정확도 ${accuracy}%`, priority: 40 });
       }
     }
   }
 
-  if (candidates.length === 0) {
-    return; // 보여줄 회상이 없으면 reel 영역 비움.
-  }
+  if (candidates.length === 0) return;
 
-  // 화면당 2~3개만 표시 (SPEC).
+  // priority 내림차순 정렬 후 상위 3개.
+  candidates.sort((a, b) => b.priority - a.priority);
   const top = candidates.slice(0, 3);
-  for (const text of top) {
+  for (const { text } of top) {
     const li = document.createElement('li');
     li.className = 'highlight-line';
     li.textContent = text;

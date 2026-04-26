@@ -1101,14 +1101,19 @@ export class GameRoom {
     };
   }
 
-  // 내부 underscore 필드는 클라에 노출 안 함 (deepestDisadvantage / wasInDanger 등 트래킹 용도).
+  // 화이트리스트 방식 — SPEC PlayerStats에 명시된 필드 + currentPerfectStreak(v0.10에서 명시)만 직렬화.
+  // 내부 트래킹 필드(_deepestDisadvantage 등)와 미래에 추가되는 임의 필드를 자동 차단.
   _serializeTugStats(stats) {
+    const ALLOWED_KEYS = [
+      'perfects', 'goods', 'misses', 'itemsGrabbed',
+      'totalPullContribution', 'longestPerfectStreak', 'currentPerfectStreak',
+      'worstRopePos', 'timeInDangerMs', 'comebackFromRopePos', 'finalBlowAt',
+    ];
     const out = {};
     for (const [id, s] of Object.entries(stats)) {
       const cleaned = {};
-      for (const [k, v] of Object.entries(s)) {
-        if (k.startsWith('_')) continue;
-        cleaned[k] = v;
+      for (const k of ALLOWED_KEYS) {
+        if (k in s) cleaned[k] = s[k];
       }
       out[id] = cleaned;
     }
@@ -1234,6 +1239,8 @@ export class GameRoom {
     this.tugWarGame.nextItemSpawnAtMs = Date.now() + TUG_ITEM_CONFIG.spawnIntervalMs;
     this.tugWarGame.items = [];
     this.tugWarGame.iceStarPending = {};
+    // Phase E-3: drama stats 첫 dt가 stale timestamp로 튀지 않도록 라운드 시작에 동기화.
+    this.tugWarGame._lastDramaTickAt = Date.now();
     const roundToken = randomHex(8);
     this.tugWarGame.roundToken = roundToken;
     this._broadcastTugWarStateSync();
@@ -1440,15 +1447,15 @@ export class GameRoom {
       // timeInDangerMs: 자기 진영 기준 danger(>=0.7) 또는 critical(>=0.9) 상태 누적 체류.
       if (disadvAbs >= 0.7) stats.timeInDangerMs += dt;
 
-      // comebackFromRopePos: 0.7 이상 밀렸다가 자기 진영 균형(disadv<=0)으로 복귀한 첫 시점에 한 번만 기록.
+      // comebackFromRopePos: 0.7 이상 밀렸다가 자기 진영 균형(disadv<=0)으로 복귀한 시점에 기록.
+      // 라운드 내 다중 comeback이 있을 수 있으므로 가장 극적인(가장 깊었던) 값으로 max 갱신.
       if (disadvAbs > stats._deepestDisadvantage) stats._deepestDisadvantage = disadvAbs;
-      if (
-        stats.comebackFromRopePos == null &&
-        stats._deepestDisadvantage >= 0.7 &&
-        selfDisadvantage <= 0
-      ) {
-        stats.comebackFromRopePos = stats._deepestDisadvantage;
-        // 한 번 기록 후 재트리거 방지: deepest 리셋. 이후에 또 깊이 밀려야 의미 있는 기록.
+      if (stats._deepestDisadvantage >= 0.7 && selfDisadvantage <= 0) {
+        const candidate = stats._deepestDisadvantage;
+        if (stats.comebackFromRopePos == null || candidate > stats.comebackFromRopePos) {
+          stats.comebackFromRopePos = candidate;
+        }
+        // deepest 리셋 — 다음 더 깊은 comeback 후보 측정을 새로 시작.
         stats._deepestDisadvantage = 0;
       }
     }

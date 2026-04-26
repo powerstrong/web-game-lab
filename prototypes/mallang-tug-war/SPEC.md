@@ -903,6 +903,18 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 
 ## 변경 이력
 
+### v0.16 (Phase E-3 gemini 리뷰 반영)
+
+**Major 1 — comebackFromRopePos 최대값 갱신**: 한 라운드 내 다중 comeback 발생 시 가장 극적인(가장 깊었던) 값으로 갱신되도록 변경. 이전 로직은 "첫 comeback 한 번만 기록"이었으나, SPEC 의도(가장 극적인 역전)에 맞게 max 갱신 + `_deepestDisadvantage` 매번 reset해서 다음 후보 측정.
+
+**Major 2 — `_lastDramaTickAt` 라운드 시작 동기화**: `_tugWarBeginRound`에서 `tugWarGame._lastDramaTickAt = Date.now()` 명시 초기화. 이전 라운드 stale timestamp가 첫 dt에 반영되지 않도록.
+
+**Minor 3 — KO ms 표시 형식**: "0.{ms}" + slice(0,2) 표기는 099→09로 잘려 "9ms"로 오인 가능. `${lefts}ms 남기고 KO!`로 단순화 (예: "342ms 남기고 KO!").
+
+**Minor 4 — `_serializeTugStats` 화이트리스트**: SPEC PlayerStats + currentPerfectStreak만 직렬화하는 명시적 화이트리스트로 변경. 미래 추가되는 임의 필드/내부 트래킹 자동 차단.
+
+**Minor 5 — 명장면 회상 priority 정렬**: 후보에 `priority` 부여 (1초 이내 KO 100, comeback 95, 마지막 3초 Pull 90, worstRopePos 위기 역전 80, 연속 Perfect 75, 찌부 생존 70, 무승부 60, 정확도 40). 내림차순 정렬 후 상위 3개. 임팩트 큰 줄이 slice에 잘리지 않게 보장.
+
 ### v0.15 (Phase E-3 완료 — 결과 화면 명장면 회상)
 
 **서버 (`worker/src/room.js`)**:
