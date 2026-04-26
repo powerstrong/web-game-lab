@@ -122,6 +122,41 @@ const TUG_PULL_POWER = {
   miss: -0.005,
 };
 
+// Phase E-1 — 아이템 시스템 (SPEC v0.11 line 207~250).
+// 자동 grab 정책: 별도 클라 인풋 없음, 서버가 캐릭터 측 ropePos 영역에 도달한 박스를 자동 부여.
+const TUG_ITEM_CONFIG = {
+  spawnIntervalMs: 4000,
+  spawnIntervalJitterMs: 1500,
+  fallDurationMs: 2200,
+  // 캐릭터에 자동 grab되는 fallProgress 임계 — 1.0 직전. 0.92는 약 200ms 마진(2200 * 0.08).
+  autoGrabFallProgress: 0.92,
+};
+
+const TUG_ITEM_DEFS = {
+  cottoncandy_bomb: {
+    spawnWeight: 70,
+    pullDelta: 0.10,
+    effect: 'instant_pull',
+  },
+  ice_star: {
+    spawnWeight: 30,
+    multiplier: 0.75,
+    affectedPulls: 1,
+    perfectBypassesEffect: true,
+    effect: 'opponent_next_non_perfect_pull_weakened',
+  },
+};
+
+function pickTugItemType() {
+  const total = Object.values(TUG_ITEM_DEFS).reduce((sum, def) => sum + def.spawnWeight, 0);
+  let roll = Math.random() * total;
+  for (const [id, def] of Object.entries(TUG_ITEM_DEFS)) {
+    roll -= def.spawnWeight;
+    if (roll <= 0) return id;
+  }
+  return 'cottoncandy_bomb';
+}
+
 function getTugRhythmConfig(game) {
   if (!game || !game.startedAt) return TUG_RHYTHM_CONFIG_PHASE1;
   const elapsed = Date.now() - game.startedAt;
@@ -996,6 +1031,13 @@ export class GameRoom {
       nextRingId: 1,
       nextRingSpawnAtMs: 0,
       stats: {},
+      // Phase E-1: 아이템 시스템.
+      // items 배열에는 active(미수령/미만료) 박스만 유지.
+      // iceStarPending[playerId] = remaining count — 다음 비-Perfect 풀 약화 횟수.
+      items: [],
+      nextItemId: 1,
+      nextItemSpawnAtMs: 0,
+      iceStarPending: {},
     };
     game.roster.forEach(({ id, name, side }) => {
       game.players[id] = {
@@ -1044,11 +1086,23 @@ export class GameRoom {
       winnerId: game.winnerId,
       endReason: game.endReason,
       currentRing: game.currentRing ? this._serializeTugRing(game.currentRing) : null,
+      items: game.items.map((item) => this._serializeTugItem(item)),
       stats: Object.fromEntries(
         Object.entries(game.stats).map(([id, s]) => [id, { ...s }]),
       ),
       phaseStage: getTugPhaseStage(game),
       serverTimeMs: Date.now(),
+    };
+  }
+
+  _serializeTugItem(item) {
+    return {
+      id: item.id,
+      itemType: item.itemType,
+      spawnedAt: item.spawnedAt,
+      expiresAt: item.expiresAt,
+      ropePosAtSpawn: item.ropePosAtSpawn,
+      fallProgress: item.fallProgress,
     };
   }
 
@@ -1156,6 +1210,10 @@ export class GameRoom {
     // 첫 링은 첫 spawn interval만큼 지연 후 등장 — 시작 직후 갑자기 링이 떠 있는 어색함 회피.
     this.tugWarGame.nextRingSpawnAtMs = Date.now() + TUG_RHYTHM_CONFIG.ringIntervalMs;
     this.tugWarGame.currentRing = null;
+    // 첫 아이템도 같은 패턴 — 첫 spawn interval 후 등장.
+    this.tugWarGame.nextItemSpawnAtMs = Date.now() + TUG_ITEM_CONFIG.spawnIntervalMs;
+    this.tugWarGame.items = [];
+    this.tugWarGame.iceStarPending = {};
     const roundToken = randomHex(8);
     this.tugWarGame.roundToken = roundToken;
     this._broadcastTugWarStateSync();
@@ -1215,7 +1273,127 @@ export class GameRoom {
       dirty = true;
     }
 
+    // 아이템 lifecycle — fallProgress 갱신, auto-grab, 만료 정리.
+    if (this._tickTugItems(now)) dirty = true;
+
+    // 새 아이템 스폰 — 평균 4초 + 지터.
+    if (now >= game.nextItemSpawnAtMs) {
+      this._spawnTugItem(now);
+      dirty = true;
+    }
+
     if (dirty) this._broadcastTugWarStateSync();
+  }
+
+  // 아이템 fallProgress 갱신 + 자동 grab/만료 처리. 변경이 있었으면 true 반환.
+  _tickTugItems(now) {
+    const game = this.tugWarGame;
+    if (!game) return false;
+    let dirty = false;
+    const remaining = [];
+
+    for (const item of game.items) {
+      if (item.grabbed) continue; // 이미 처리된 아이템은 다음 sync에서 빠짐
+      const age = now - item.spawnedAt;
+      const progress = age / TUG_ITEM_CONFIG.fallDurationMs;
+      item.fallProgress = Math.min(1, progress);
+
+      // 자동 grab: progress가 임계 이상 + ropePos가 자기 진영 쪽으로 충분히 와 있으면 가까운 캐릭터에게 부여.
+      // SPEC: 박스는 현재 ropePos 위에서 떨어짐 + 줄이 움직이면 박스도 함께 움직임 (item.ropePosAtSpawn은 시각 가이드).
+      // 게임 로직상 grab 결정은 현재 ropePos 부호로: ropePos > 0 → left 우세 → left가 grab.
+      if (item.fallProgress >= TUG_ITEM_CONFIG.autoGrabFallProgress) {
+        const grabSide = game.ropePos > 0 ? 'left' : (game.ropePos < 0 ? 'right' : null);
+        if (grabSide) {
+          const grabber = Object.values(game.players).find((p) => p.side === grabSide);
+          if (grabber) {
+            this._applyTugItemEffect(item, grabber);
+            dirty = true;
+            continue; // 박스 소멸
+          }
+        }
+        // ropePos==0 균형 또는 grab 못 한 채 끝까지 떨어짐 → 둘 다 못 먹음.
+        if (item.fallProgress >= 1) {
+          dirty = true;
+          continue;
+        }
+      }
+
+      remaining.push(item);
+    }
+
+    if (remaining.length !== game.items.length) {
+      game.items = remaining;
+      dirty = true;
+    }
+    return dirty;
+  }
+
+  _spawnTugItem(now) {
+    const game = this.tugWarGame;
+    if (!game) return;
+    const itemType = pickTugItemType();
+    const id = `item-${game.nextItemId++}`;
+    game.items.push({
+      id,
+      itemType,
+      spawnedAt: now,
+      expiresAt: now + TUG_ITEM_CONFIG.fallDurationMs,
+      ropePosAtSpawn: game.ropePos,
+      fallProgress: 0,
+      grabbed: false,
+    });
+    const jitter = (Math.random() * 2 - 1) * TUG_ITEM_CONFIG.spawnIntervalJitterMs;
+    game.nextItemSpawnAtMs = now + TUG_ITEM_CONFIG.spawnIntervalMs + jitter;
+  }
+
+  _applyTugItemEffect(item, grabber) {
+    const game = this.tugWarGame;
+    if (!game) return;
+    item.grabbed = true;
+    item.grabbedBy = grabber.id;
+
+    const stats = game.stats[grabber.id];
+    if (stats) stats.itemsGrabbed += 1;
+
+    if (item.itemType === 'cottoncandy_bomb') {
+      // 즉시 풀 +0.10. side 부호 반전 적용.
+      const def = TUG_ITEM_DEFS.cottoncandy_bomb;
+      const signed = grabber.side === 'right' ? -def.pullDelta : def.pullDelta;
+      game.ropePos = clamp(game.ropePos + signed, -1, 1);
+
+      this._broadcastGame({
+        type: 'TUG_ITEM_RESULT',
+        itemId: item.id,
+        itemType: item.itemType,
+        playerId: grabber.id,
+        effect: TUG_ITEM_DEFS.cottoncandy_bomb.effect,
+        ropeDelta: signed,
+        newRopePos: game.ropePos,
+        clientSeq: null,
+      }, 'mallang-tug-war');
+
+      if (Math.abs(game.ropePos) >= TUG_KO_THRESHOLD) {
+        this._finishTugWarKO();
+        return;
+      }
+    } else if (item.itemType === 'ice_star') {
+      // 상대의 다음 비-Perfect 풀 약화. perfect는 bypass.
+      const opponent = Object.values(game.players).find((p) => p.id !== grabber.id);
+      if (opponent) {
+        game.iceStarPending[opponent.id] = (game.iceStarPending[opponent.id] || 0) + TUG_ITEM_DEFS.ice_star.affectedPulls;
+      }
+      this._broadcastGame({
+        type: 'TUG_ITEM_RESULT',
+        itemId: item.id,
+        itemType: item.itemType,
+        playerId: grabber.id,
+        targetId: opponent?.id || null,
+        effect: TUG_ITEM_DEFS.ice_star.effect,
+        ropeDelta: 0,
+        newRopePos: game.ropePos,
+        clientSeq: null,
+      }, 'mallang-tug-war');
+    }
   }
 
   _spawnTugRing(now, cfg = TUG_RHYTHM_CONFIG_PHASE1) {
@@ -1339,11 +1517,24 @@ export class GameRoom {
     ring.resolvedBy[player.id] = judgement;
 
     let ropeDelta = TUG_PULL_POWER[judgement] ?? 0;
+
+    // Phase E-1: ice_star pending 효과. 비-Perfect 풀에만 적용, perfect는 bypass.
+    const pending = game.iceStarPending[player.id] || 0;
+    let iceApplied = false;
+    if (pending > 0 && judgement !== 'perfect' && judgement !== 'miss') {
+      ropeDelta = ropeDelta * TUG_ITEM_DEFS.ice_star.multiplier;
+      game.iceStarPending[player.id] = pending - 1;
+      iceApplied = true;
+    } else if (pending > 0 && judgement === 'perfect') {
+      // perfect는 bypass — pending 유지 (다음 비-perfect까지 보존).
+    }
+
     // side가 left면 양수 방향, right이면 음수 방향으로 적용 (ropePos > 0이면 left 우세)
     if (target.side === 'right') ropeDelta = -ropeDelta;
 
     game.ropePos = clamp(game.ropePos + ropeDelta, -1, 1);
     this._applyTugTapStats(player.id, judgement, ropeDelta);
+    void iceApplied; // (현재 클라 단순 통계 미사용. 추후 결과 화면 등장 시 활용)
 
     this._broadcastGame({
       type: 'TUG_TAP_RESULT',

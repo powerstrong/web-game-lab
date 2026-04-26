@@ -800,7 +800,41 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 - 8종 의성어 사운드 — 미구현
 - RTT 보정 / Cloudflare Alarms 전환 — 후속 (Phase B/C에서 명시)
 
-### Phase E — 아이템 2종 + KO 시퀀스 + 결과 화면 명장면 회상 + 사운드 8종 (예정)
+### Phase E-1 — 아이템 2종 ✅ 완료
+
+**구현 산출물**:
+
+- **`worker/src/room.js`**:
+  - `TUG_ITEM_CONFIG` (spawn 4000±1500ms, fall 2200ms, autoGrabFallProgress 0.92)
+  - `TUG_ITEM_DEFS` (cottoncandy_bomb 70%/+0.10 즉시 풀, ice_star 30%/0.75 multiplier)
+  - `pickTugItemType()` 가중치 랜덤 선택
+  - `tugWarGame`에 `items / nextItemId / nextItemSpawnAtMs / iceStarPending` 추가
+  - `_tickTugItems()` — 매 50ms tick: fallProgress 갱신, autoGrabFallProgress 도달 시 ropePos 부호 기준 우세 진영에게 자동 부여 (ropePos==0이면 미수령)
+  - `_spawnTugItem()` — itemType 랜덤, ropePosAtSpawn은 현재 ropePos
+  - `_applyTugItemEffect()` — cottoncandy_bomb: ropePos += 0.10 (side 부호) + KO 체크 + TUG_ITEM_RESULT. ice_star: 상대 iceStarPending +1
+  - `_handleTugWarTap()`에서 비-Perfect 풀 시 iceStarPending 소비 + ropeDelta * 0.75. perfect는 bypass (pending 유지)
+  - STATE_SYNC payload에 `items: [{ id, itemType, spawnedAt, expiresAt, ropePosAtSpawn, fallProgress }]` 추가
+  - TUG_ITEM_RESULT 메시지 형식: `{ type, itemId, itemType, playerId, targetId?, effect, ropeDelta, newRopePos, clientSeq }`
+
+- **`prototypes/mallang-tug-war/game.js`**:
+  - `state.items` / `state.iceTintUntilMs` 추가
+  - `TUG_ITEM_VISUAL` (이모지 메타: 🍬 / ❄️)
+  - `applyStateSync`에서 items 미러
+  - `handleItemResult()` — ropePos 정정 + 효과별 분기 (cottoncandy_bomb은 캐릭터 burst + perfect 수준의 wobble seed; ice_star는 burst + 본인이 타겟이면 청록 틴트)
+  - `flashItemEffect(playerId, itemType)` — 캐릭터 슬롯에 0.9초 burst 이모지 추가/제거
+  - `renderItems(now)` — `liveIds` reconciler로 arena 안 `.tug-item` DOM과 1:1 동기화 (id 기준), x는 현재 ropePos에 맞춰 평행 이동, y는 fallProgress * 줄 라인까지
+  - localTick에서 매 프레임 renderItems + iceTint 만료 체크
+
+- **`prototypes/mallang-tug-war/style.css`**:
+  - `.tug-item` 32×32 박스 + bobble shadow 애니메이션. ice_star는 청록 톤
+  - `.tug-item-burst` 0.9s 폭발 키프레임 (perfect/ice_star별 drop-shadow)
+  - `.arena.is-ice-tinted::after` 청록 비네팅 (critical 빨강과 분리된 색상)
+
+**디자인 결정**:
+- **자동 grab 정책**: SPEC line 240 "캐릭터가 박스에 닿는 순간 즉시 발동" 그대로. 클라 → 서버 `TUG_ITEM_GRAB` 메시지는 정의만 유지하고 MVP에서는 미사용. 서버 권위로 모든 결정.
+- 우세 진영 자동 grab (ropePos 부호) — SPEC line 235 "줄이 자기 진영에 가까울수록 자기가 먹기 쉽다"의 단순 구현.
+- ice_star pending: perfect는 bypass + pending 유지 → 다음 비-perfect까지 보존. 실력으로 극복 가능 보장 (SPEC line 244~250 디자인 원칙 준수).
+- ropePos==0 균형 시 둘 다 못 먹음 — 의도적 (의도 vs 자동 부여 사이 절충).
 
 ---
 
@@ -868,6 +902,16 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 ---
 
 ## 변경 이력
+
+### v0.11 (Phase E-1 완료 — 아이템 시스템)
+
+**서버**: `TUG_ITEM_CONFIG` (4000±1500ms 스폰 / 2200ms 낙하), `TUG_ITEM_DEFS` (`cottoncandy_bomb` 70%/+0.10, `ice_star` 30%/0.75 multiplier 비-perfect 약화), `pickTugItemType()` 가중치 랜덤. `_tickTugItems`가 fallProgress 갱신 + 자동 grab 처리 (ropePos 부호 기반 우세 진영). `_handleTugWarTap`에 `iceStarPending` 소비 (perfect bypass + pending 유지). STATE_SYNC payload에 `items` 추가.
+
+**클라**: `state.items` 미러 + `renderItems(now)` reconciler로 `.tug-item` DOM 동기화. `handleItemResult`에서 cottoncandy_bomb 폭발 burst + ropePos 정정 + wobble seed, ice_star burst + 타겟 본인이면 `.arena.is-ice-tinted` 청록 오버레이 (4s 만료).
+
+**스타일**: `.tug-item` 32×32 박스 + bobble shadow, `.tug-item-burst` 0.9s 키프레임, `.arena.is-ice-tinted::after` 청록 비네팅.
+
+**TUG_ITEM_GRAB 메시지는 정의만 유지** — MVP는 자동 grab 정책으로 단순화. SPEC 메시지 사양은 v2 확장 여지로 보존.
 
 ### v0.10 (Phase D codex 리뷰 반영)
 

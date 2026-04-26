@@ -75,6 +75,14 @@ const state = {
   lastJudgement: null,           // { judgement, at, byPlayerId }
   // Phase D: 페이즈 2 클러치 — 서버 권위 stage(1|2) 미러
   phaseStage: 1,
+  // Phase E-1: 아이템 미러
+  items: [],            // [{ id, itemType, spawnedAt, expiresAt, ropePosAtSpawn, fallProgress }]
+  iceTintUntilMs: 0,    // 얼음별사탕 효과 중인 본인 화면 청록 틴트 만료 시각 (performance.now 기준)
+};
+
+const TUG_ITEM_VISUAL = {
+  cottoncandy_bomb: { icon: '🍬', name: '솜사탕 폭탄' },
+  ice_star:         { icon: '❄️', name: '얼음 별사탕' },
 };
 
 // === DOM 캐시 ===
@@ -279,7 +287,7 @@ function handleMessage(msg) {
       handleTapResult(msg);
       break;
     case 'TUG_ITEM_RESULT':
-      // TODO: Phase E
+      handleItemResult(msg);
       break;
     case 'TUG_GAME_END':
       handleGameEnd(msg);
@@ -288,6 +296,48 @@ function handleMessage(msg) {
       showToast(msg.message || '오류가 발생했습니다.');
       break;
   }
+}
+
+// Phase E-1: 아이템 효과 결과 — 서버에서 캐릭터에게 적용된 직후 도착.
+function handleItemResult(msg) {
+  // ropePos 권위 갱신 (cottoncandy_bomb은 즉시 풀 적용)
+  if (Number.isFinite(msg.newRopePos)) {
+    state.ropePos = msg.newRopePos;
+    renderRope();
+  }
+
+  if (msg.itemType === 'cottoncandy_bomb') {
+    // 풀러진 측 캐릭터 위에 폭발 이펙트 + 줄 wobble.
+    flashItemEffect(msg.playerId, 'cottoncandy_bomb');
+    // wobble seed 갱신 (강한 풀로 취급)
+    if (typeof recordPerfectPull === 'function') {
+      recordPerfectPull(msg.playerId, msg.ropeDelta || 0);
+    }
+  } else if (msg.itemType === 'ice_star') {
+    // 얼음별사탕 — 사용자(grabber)는 가벼운 표시, 타겟(상대)는 청록 틴트.
+    flashItemEffect(msg.playerId, 'ice_star');
+    if (msg.targetId === myPlayerId) {
+      // 본인 화면이 약화 대상 — 청록 오버레이 켜기 (다음 비-perfect 풀까지).
+      state.iceTintUntilMs = performance.now() + 4000; // 안전 만료 4초.
+      const arena = document.querySelector('.arena');
+      if (arena) arena.classList.add('is-ice-tinted');
+    }
+  }
+}
+
+function flashItemEffect(playerId, itemType) {
+  const player = state.players.find((p) => p.id === playerId);
+  if (!player) return;
+  const wrap = document.querySelector(`.tug-character--${player.side}`);
+  if (!wrap) return;
+  const meta = TUG_ITEM_VISUAL[itemType] || { icon: '✨' };
+  const burst = document.createElement('span');
+  burst.className = 'tug-item-burst';
+  burst.dataset.itemType = itemType;
+  burst.textContent = meta.icon;
+  wrap.appendChild(burst);
+  // 0.9s 후 제거
+  setTimeout(() => burst.remove(), 900);
 }
 
 function handleTapResult(msg) {
@@ -348,6 +398,9 @@ function applyStateSync(serverState) {
   if (prevRingId && prevRingId !== (incomingRing?.id || null)) {
     state.resolvedRingIds.delete(prevRingId);
   }
+
+  // Phase E-1: items 미러
+  state.items = Array.isArray(serverState.items) ? serverState.items : [];
 
   const me = state.players.find((p) => p.id === myPlayerId);
   if (me) {
@@ -679,9 +732,55 @@ function localTick(now) {
   if (state.phase === 'playing') {
     renderRing();
     renderRope(now);
+    renderItems(now);
+    if (state.iceTintUntilMs && now > state.iceTintUntilMs) {
+      state.iceTintUntilMs = 0;
+      const arena = document.querySelector('.arena');
+      if (arena) arena.classList.remove('is-ice-tinted');
+    }
   }
 
   requestAnimationFrame(localTick);
+}
+
+// Phase E-1 — 떨어지는 아이템 박스 렌더. server-authoritative items 배열을
+// arena 안의 .tug-item DOM과 1:1로 동기화한다 (id 기준 단순 reconciler).
+function renderItems(now) {
+  const arena = document.querySelector('.arena');
+  if (!arena) return;
+
+  const arenaWidth = arena.clientWidth || 360;
+  const arenaHeight = arena.clientHeight || 560;
+  const ropeOffsetPx = state.ropePos * arenaWidth * 0.32;
+  const liveIds = new Set();
+
+  for (const item of state.items) {
+    liveIds.add(item.id);
+    let el = arena.querySelector(`.tug-item[data-item-id="${item.id}"]`);
+    if (!el) {
+      el = document.createElement('span');
+      el.className = 'tug-item';
+      el.dataset.itemId = item.id;
+      el.dataset.itemType = item.itemType;
+      el.textContent = TUG_ITEM_VISUAL[item.itemType]?.icon || '✨';
+      arena.appendChild(el);
+    }
+    // x: ring center 기준 ropePosAtSpawn에서 시작했지만 줄이 움직이면 박스도 함께 — 현재 ropePos에 맞춰 평행 이동.
+    // SPEC: "줄이 움직이면 박스도 같이 움직임 (줄 위에 얹혀있는 것)"
+    const trackOffsetPx = item.ropePosAtSpawn * arenaWidth * 0.32 + (ropeOffsetPx - item.ropePosAtSpawn * arenaWidth * 0.32);
+    // 단순화: 현재 ropePos를 따라가도록.
+    const x = arenaWidth / 2 + ropeOffsetPx;
+    // y: 0 (arena 상단) → 줄 라인(48% top) 까지 수직 낙하.
+    const ropeY = arenaHeight * 0.48;
+    const y = -10 + (ropeY + 10) * (item.fallProgress || 0);
+    el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+    void trackOffsetPx;
+  }
+
+  // 사라진 박스 제거.
+  arena.querySelectorAll('.tug-item').forEach((el) => {
+    if (!liveIds.has(el.dataset.itemId)) el.remove();
+  });
 }
 
 // === 화면 전환 ===
