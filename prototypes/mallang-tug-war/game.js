@@ -115,7 +115,11 @@ const tugSynth = {
     return this.ctx;
   },
   resume() {
-    if (this.ctx?.state === 'suspended') this.ctx.resume().catch(() => {});
+    // iOS Safari는 인터럽트(전화/잠금) 후 state가 'interrupted'가 될 수 있음.
+    // 'running'이 아닌 모든 상태에서 resume 시도해 안전하게 복구.
+    if (this.ctx && this.ctx.state !== 'running') {
+      this.ctx.resume().catch(() => {});
+    }
   },
   setEnabled(on) {
     this.enabled = !!on;
@@ -518,7 +522,9 @@ function handleTapResult(msg) {
     const serverDelta = Number.isFinite(msg.ropeDelta) ? msg.ropeDelta : 0;
     recordPerfectPull(msg.playerId, serverDelta);
   }
-  // Phase E-4: 상대 입력에 대한 사운드 (자기 사운드는 handleTapInput 낙관 단계에서 이미 재생).
+  // Phase E-4: 상대 입력에 대한 사운드만 여기서 재생.
+  // 자기 탭 사운드는 handleTapInput 낙관 단계에서만 트리거(중복 회피). 서버 정정 판정이 다르더라도
+  // 손맛 즉각성을 우선해 재생 사운드를 갱신하지 않는다.
   if (msg.playerId !== myPlayerId) {
     if (msg.judgement === 'perfect' && tugSynth.canPlay('opp-perfect', 50)) tugSynth.perfect();
     else if (msg.judgement === 'good' && tugSynth.canPlay('opp-good', 50)) tugSynth.good();

@@ -903,6 +903,12 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 
 ## 변경 이력
 
+### v0.18 (Phase E-4 gemini 리뷰 반영)
+
+**Major — iOS Safari interrupted 상태 대응**: `tugSynth.resume()`이 `state === 'suspended'`만 체크해서 iOS의 'interrupted' 상태(전화/화면 잠금 인터럽트 후)에서 resume 누락 가능. `state !== 'running'`으로 일반화.
+
+**Minor — handleTapResult 자기 사운드 비재생 주석 명확화**: 자기 탭 사운드는 `handleTapInput` 낙관 단계에서만 트리거 (서버 정정과 다르더라도 손맛 즉각성 우선). 중복 재생 회피 의도 명문화.
+
 ### v0.17 (Phase E-4 완료 — WebAudio 사운드 8종 + 페이즈 cue + 카운트다운 비프)
 
 **클라 전용** — 자산 없이 WebAudio API로 즉석 합성. SPEC line 530~543의 8종 의성어 + 페이즈 2 BGM cue + 카운트다운 음성 구현.
