@@ -382,8 +382,12 @@ function applyStateSync(serverState) {
   state.startedAt = serverState.startedAt ?? null;
   state.ropePos = serverState.ropePos ?? 0;
   state.players = Array.isArray(serverState.players) ? serverState.players : [];
-  state.winnerId = serverState.winnerId ?? null;
-  state.endReason = serverState.endReason ?? null;
+  // KO 시퀀스 진행 중에는 winnerId/endReason 갱신 차단 — 후행 abandoned/timeout STATE_SYNC가
+  // 시각 연출과 결과 텍스트를 흔들지 않도록 (gemini Major 1).
+  if (!state.koSequenceActive) {
+    state.winnerId = serverState.winnerId ?? null;
+    state.endReason = serverState.endReason ?? null;
+  }
 
   // Phase D: 클러치 stage 미러 + .arena.is-clutch 토글
   const newStage = serverState.phaseStage === 2 ? 2 : 1;
@@ -434,8 +438,12 @@ function applyStateSync(serverState) {
 
 function handleGameEnd(msg) {
   state.phase = 'finished';
-  state.winnerId = msg.winnerId ?? null;
-  state.endReason = msg.reason ?? null;
+  // KO 시퀀스 진행 중에는 endReason/winnerId 권위 덮어쓰기를 차단 — 시퀀스가 절단되거나
+  // 결과 텍스트가 시각 연출과 충돌하지 않도록 (gemini Major 1).
+  if (!state.koSequenceActive) {
+    state.winnerId = msg.winnerId ?? null;
+    state.endReason = msg.reason ?? null;
+  }
   finalizeFinish();
 }
 
@@ -500,7 +508,9 @@ function renderResult() {
   if (state.endReason === 'abandoned') {
     title = '상대가 나갔습니다';
   } else if (state.endReason === 'ko') {
-    title = state.winnerId === myPlayerId ? 'KO 승!' : 'KO 패배';
+    // winnerId 미상(서버 정합성 깨짐) 시 일방 패배로 표기하지 않고 중립 fallback (gemini Major 2).
+    if (!state.winnerId) title = 'KO!';
+    else title = state.winnerId === myPlayerId ? 'KO 승!' : 'KO 패배';
   } else if (state.endReason === 'timeout') {
     if (state.winnerId == null) title = '무승부';
     else title = state.winnerId === myPlayerId ? '시간 종료 — 승리' : '시간 종료 — 패배';

@@ -903,6 +903,12 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 
 ## 변경 이력
 
+### v0.14 (Phase E-2 gemini 리뷰 반영)
+
+**Major 1 — KO 시퀀스 도중 후행 메시지 차단**: `koSequenceActive=true`인 동안 `handleGameEnd`/`applyStateSync`가 `winnerId/endReason`을 덮어쓰지 못하도록 가드. abandoned/timeout STATE_SYNC가 늦게 도착해도 KO 연출과 결과 텍스트가 일관되게 유지됨.
+
+**Major 2 — KO + winnerId null fallback**: `endReason === 'ko'`인데 winnerId가 없는 정합성 예외에서 본인이 일방적으로 "KO 패배"로 보이는 문제 회피. 이 케이스는 "KO!" 중립 메시지로 표시.
+
 ### v0.13 (Phase E-2 완료 — KO 1.8초 7단계 시퀀스)
 
 **클라 전용 구현** — 서버 변경 없음. KO 발생 시 서버는 즉시 `phase: 'finished', endReason: 'ko'`로 전환하지만, 클라가 결과 화면 전환을 1.8초 보류하고 그동안 SPEC line 491~499의 7단계 연출을 단일 통합 keyframe으로 진행한다.
