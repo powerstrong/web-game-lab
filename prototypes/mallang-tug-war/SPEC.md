@@ -903,6 +903,38 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 
 ## 변경 이력
 
+### v0.17 (Phase E-4 완료 — WebAudio 사운드 8종 + 페이즈 cue + 카운트다운 비프)
+
+**클라 전용** — 자산 없이 WebAudio API로 즉석 합성. SPEC line 530~543의 8종 의성어 + 페이즈 2 BGM cue + 카운트다운 음성 구현.
+
+**`game.js`**:
+- `tugSynth` — lazy AudioContext + master gain. `_blip` (oscillator + envelope) / `_noise` (white noise + biquad filter) 두 빌딩블록.
+- 8개 SPEC cue: `perfect()`(뽕!) / `good()`(톡) / `miss()`(삐끗) / `stretch()`(뿌우욱) / `danger()`(뿌직) / `iceSlip()`(스윽) / `koFall()`(슈우웅) / `victoryBurst()`(펑!).
+- 추가: `phase2Cue()`(종소리 ding) / `countdownTick(numberLeft)`(3-2-1 비프, "1"은 더 높은 음) / `ringTick()`(미세 틱, 선택 사용).
+- `enabled` 플래그 + master gain — `setEnabled(false)`로 음소거.
+- `canPlay(name, minIntervalMs)` throttle — 같은 cue가 중복 트리거되지 않게.
+- 트리거 지점:
+  - `applyStateSync` 카운트다운 sec 변화 시 → `countdownTick(sec)` (3/2/1 차등 음)
+  - `applyStateSync` phaseStage 1→2 → `phase2Cue()`
+  - `handleTapInput` 낙관 예측 시 → perfect/good/miss (즉각 손맛)
+  - `handleTapResult` 상대 입력 → opp-perfect/good (상대 miss는 음소거 — 화면 노이즈)
+  - `applyRopeMotionState` 자기 진영 danger/critical 진입 시 → `danger()` (+critical은 stretch 추가)
+  - `handleItemResult` cottoncandy_bomb → `victoryBurst()` 재활용 / ice_star → `iceSlip()`
+  - `playKoSequence` 시작 시 `koFall()`, 1.5초 시점에 `victoryBurst()`
+- 첫 사용자 인터랙션(pointerdown/keydown) 시 한 번 `ctx.resume()` — 브라우저 autoplay 정책 우회.
+
+**`index.html`**:
+- play-topbar에 `#tugMuteBtn` 🔊/🔇 토글 버튼 + aria-pressed.
+
+**`style.css`**:
+- `.tug-mute-btn` 36px 동그라미, aria-pressed=true일 때 음소거 배경.
+
+**디자인 결정**:
+- 자산 의존 없이 합성 — 출시 전 실제 사운드로 교체할 수 있도록 함수 단위로 분리.
+- 자기 사운드는 낙관적(handleTapInput)에서, 상대 사운드는 권위(handleTapResult)에서 — 손맛 즉각성 + 정확성 균형.
+- danger/critical 진입은 자기 진영 기준만 (상대가 위험하다고 내 화면에 사운드 안 남).
+- countdown은 1/2/3 모두 다른 음정 — 3,2는 520Hz, 1은 880Hz로 임팩트 차등.
+
 ### v0.16 (Phase E-3 gemini 리뷰 반영)
 
 **Major 1 — comebackFromRopePos 최대값 갱신**: 한 라운드 내 다중 comeback 발생 시 가장 극적인(가장 깊었던) 값으로 갱신되도록 변경. 이전 로직은 "첫 comeback 한 번만 기록"이었으나, SPEC 의도(가장 극적인 역전)에 맞게 max 갱신 + `_deepestDisadvantage` 매번 reset해서 다음 후보 측정.

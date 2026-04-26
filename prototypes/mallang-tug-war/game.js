@@ -82,12 +82,145 @@ const state = {
   koSequenceActive: false,
   // Phase E-3: 서버 stats 미러 (명장면 회상 문구 생성용).
   stats: {},          // { [playerId]: PlayerStats }
+  // Phase E-4: 사운드 — countdown 마지막 비프 sec (중복 방지)
+  lastCountdownSec: null,
+  // Phase E-4: rope 상태 사운드 트리거 — 직전 self/other 상태로부터 변화 감지.
+  lastSelfRopeState: 'balanced',
 };
 
 // SPEC line 491~499: 7단계 KO 시퀀스. 단계별 시작 시각(ms 진행 시간) — CSS animation은
 // 통합 keyframe 사용, JS는 단계 클래스만 토글한다.
 const TUG_KO_SEQUENCE_TOTAL_MS = 1800;
 const TUG_KO_SEQUENCE_RESULT_DELAY_MS = 1800; // 결과 화면 전환은 시퀀스 종료 시점.
+
+// === Phase E-4: WebAudio synth — SPEC line 530~543의 8종 의성어 + 페이즈 2 cue + 카운트다운 비프.
+// 자산 없이 즉석 합성. AudioContext는 사용자 첫 인터랙션 후 resume.
+const tugSynth = {
+  ctx: null,
+  master: null,
+  enabled: true,
+  lastPlayedAt: {}, // throttle 키 → 최근 재생 시각
+  ensure() {
+    if (this.ctx) return this.ctx;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      this.ctx = new Ctx();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.4;
+      this.master.connect(this.ctx.destination);
+    } catch {
+      this.ctx = null;
+    }
+    return this.ctx;
+  },
+  resume() {
+    if (this.ctx?.state === 'suspended') this.ctx.resume().catch(() => {});
+  },
+  setEnabled(on) {
+    this.enabled = !!on;
+    if (this.master) this.master.gain.value = this.enabled ? 0.4 : 0;
+  },
+  // throttle: 같은 cue가 minIntervalMs 내 두 번 재생되지 않게.
+  canPlay(name, minIntervalMs = 60) {
+    const now = performance.now();
+    if ((this.lastPlayedAt[name] || 0) + minIntervalMs > now) return false;
+    this.lastPlayedAt[name] = now;
+    return true;
+  },
+  // 단발 oscillator + envelope. type/freq/ms/attack/decay 패턴 단순화.
+  _blip({ type = 'sine', freq = 440, ms = 100, attack = 4, peak = 0.6, decay = null, sweepTo = null } = {}) {
+    if (!this.enabled) return;
+    const ctx = this.ensure();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    if (sweepTo != null) {
+      osc.frequency.exponentialRampToValueAtTime(Math.max(0.0001, sweepTo), t0 + ms / 1000);
+    }
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(peak, t0 + attack / 1000);
+    const tail = decay ?? ms;
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + tail / 1000);
+    osc.connect(gain).connect(this.master);
+    osc.start(t0);
+    osc.stop(t0 + tail / 1000 + 0.02);
+  },
+  _noise({ ms = 200, peak = 0.4, hpf = 800, lpf = 4000 } = {}) {
+    if (!this.enabled) return;
+    const ctx = this.ensure();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    const buf = ctx.createBuffer(1, Math.ceil((ctx.sampleRate * ms) / 1000), ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = hpf;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = lpf;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(peak, t0 + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + ms / 1000);
+    src.connect(hp).connect(lp).connect(gain).connect(this.master);
+    src.start(t0);
+    src.stop(t0 + ms / 1000 + 0.02);
+  },
+  // === SPEC 사운드 매핑 ===
+  perfect() { // 뽕!
+    this._blip({ type: 'triangle', freq: 880, sweepTo: 740, ms: 90, attack: 2, peak: 0.6 });
+    this._blip({ type: 'sine', freq: 1320, ms: 60, attack: 2, peak: 0.3 });
+  },
+  good() { // 톡
+    this._blip({ type: 'triangle', freq: 660, sweepTo: 580, ms: 70, attack: 2, peak: 0.5 });
+  },
+  miss() { // 삐끗
+    this._blip({ type: 'sawtooth', freq: 320, sweepTo: 180, ms: 200, attack: 4, peak: 0.35 });
+  },
+  stretch() { // 뿌우욱
+    this._blip({ type: 'sawtooth', freq: 180, sweepTo: 240, ms: 320, attack: 30, peak: 0.4 });
+  },
+  danger() { // 뿌직 / 뿅
+    this._blip({ type: 'square', freq: 360, sweepTo: 200, ms: 160, attack: 4, peak: 0.45 });
+  },
+  iceSlip() { // 스윽
+    this._noise({ ms: 280, peak: 0.32, hpf: 1800, lpf: 5200 });
+    this._blip({ type: 'sine', freq: 1200, sweepTo: 700, ms: 260, attack: 8, peak: 0.18 });
+  },
+  koFall() { // 슈우웅
+    this._blip({ type: 'sawtooth', freq: 900, sweepTo: 110, ms: 800, attack: 8, peak: 0.5 });
+  },
+  victoryBurst() { // 펑!
+    this._noise({ ms: 180, peak: 0.5, hpf: 600, lpf: 6000 });
+    this._blip({ type: 'square', freq: 760, sweepTo: 1200, ms: 220, attack: 2, peak: 0.4 });
+  },
+  // 페이즈 2 BGM cue — 종소리 ding
+  phase2Cue() {
+    this._blip({ type: 'sine', freq: 660, ms: 380, attack: 4, peak: 0.5 });
+    this._blip({ type: 'sine', freq: 990, ms: 380, attack: 4, peak: 0.3 });
+  },
+  // 카운트다운 비프 — 3/2/1은 같은 함수 호출, GO! 는 phase2Cue 류.
+  countdownTick(numberLeft) {
+    const isFinal = numberLeft <= 1;
+    this._blip({
+      type: 'sine',
+      freq: isFinal ? 880 : 520,
+      ms: isFinal ? 220 : 140,
+      attack: 4,
+      peak: 0.45,
+    });
+  },
+  ringTick() { // 미세 틱 (선택 — 매 ring 등장)
+    this._blip({ type: 'sine', freq: 1500, ms: 30, attack: 1, peak: 0.18 });
+  },
+};
 
 const TUG_ITEM_VISUAL = {
   cottoncandy_bomb: { icon: '🍬', name: '솜사탕 폭탄' },
@@ -266,6 +399,26 @@ function applyRopeMotionState(ropeState, ropePos) {
   if (ropeVisual.lastAppliedMotionKey === key) return;
   ropeVisual.lastAppliedMotionKey = key;
 
+  // Phase E-4: 자기 진영 기준 위험 상태 진입 시 사운드.
+  // me.side가 left면 ropePos<0, right면 ropePos>0이 위험.
+  const me = state.players.find((p) => p.id === myPlayerId);
+  if (me) {
+    const selfDanger = me.side === 'left' ? ropePos < 0 : ropePos > 0;
+    let selfState = ropeState;
+    if (!selfDanger) selfState = 'balanced'; // 자기에게 우세/균형이면 사운드 없음
+    if (selfState !== state.lastSelfRopeState) {
+      const prev = state.lastSelfRopeState;
+      state.lastSelfRopeState = selfState;
+      // danger 진입 또는 critical 진입 시 한 번씩.
+      if (selfState === 'danger' && prev !== 'critical' && tugSynth.canPlay('danger', 600)) {
+        tugSynth.danger();
+      } else if (selfState === 'critical' && prev !== 'critical' && tugSynth.canPlay('critical', 600)) {
+        tugSynth.danger();
+        tugSynth.stretch();
+      }
+    }
+  }
+
   const arena = document.querySelector('.arena');
   const charLeftWrap = document.querySelector('.tug-character--left');
   const charRightWrap = document.querySelector('.tug-character--right');
@@ -322,6 +475,8 @@ function handleItemResult(msg) {
     if (typeof recordPerfectPull === 'function') {
       recordPerfectPull(msg.playerId, msg.ropeDelta || 0);
     }
+    // Phase E-4: 폭발 사운드 (펑! 재활용).
+    tugSynth.victoryBurst();
   } else if (msg.itemType === 'ice_star') {
     // 얼음별사탕 — 사용자(grabber)는 가벼운 표시, 타겟(상대)는 청록 틴트.
     flashItemEffect(msg.playerId, 'ice_star');
@@ -331,6 +486,8 @@ function handleItemResult(msg) {
       const arena = document.querySelector('.arena');
       if (arena) arena.classList.add('is-ice-tinted');
     }
+    // Phase E-4: 미끄러짐 사운드.
+    tugSynth.iceSlip();
   }
 }
 
@@ -360,6 +517,12 @@ function handleTapResult(msg) {
   if (msg.judgement === 'perfect') {
     const serverDelta = Number.isFinite(msg.ropeDelta) ? msg.ropeDelta : 0;
     recordPerfectPull(msg.playerId, serverDelta);
+  }
+  // Phase E-4: 상대 입력에 대한 사운드 (자기 사운드는 handleTapInput 낙관 단계에서 이미 재생).
+  if (msg.playerId !== myPlayerId) {
+    if (msg.judgement === 'perfect' && tugSynth.canPlay('opp-perfect', 50)) tugSynth.perfect();
+    else if (msg.judgement === 'good' && tugSynth.canPlay('opp-good', 50)) tugSynth.good();
+    // 상대 miss는 음소거 — 본인 화면 노이즈 회피.
   }
   // 내 탭에 대한 응답이면 pending 예측을 꺼내서 동일하면 popup 재시작 생략 (Minor 4 회피)
   if (msg.playerId === myPlayerId && msg.clientSeq != null) {
@@ -394,9 +557,23 @@ function applyStateSync(serverState) {
   // Phase D: 클러치 stage 미러 + .arena.is-clutch 토글
   const newStage = serverState.phaseStage === 2 ? 2 : 1;
   if (newStage !== state.phaseStage) {
+    const wasStage1 = state.phaseStage === 1;
     state.phaseStage = newStage;
     const arena = document.querySelector('.arena');
     if (arena) arena.classList.toggle('is-clutch', newStage === 2);
+    // Phase E-4: 1→2 전환 시 BGM cue.
+    if (wasStage1 && newStage === 2) tugSynth.phase2Cue();
+  }
+
+  // Phase E-4: countdown 비프 — 새로 들어온 sec와 직전 sec가 다르면 한 번 재생.
+  if (state.phase === 'countdown' && Number.isFinite(state.countdownMsLeft)) {
+    const sec = Math.max(1, Math.ceil(state.countdownMsLeft / 1000));
+    if (state.lastCountdownSec !== sec) {
+      state.lastCountdownSec = sec;
+      tugSynth.countdownTick(sec);
+    }
+  } else {
+    state.lastCountdownSec = null;
   }
 
   // 서버 시각 오프셋 — ring 진행도/판정 예측에 사용 (단순 sample, RTT 절반 미보정).
@@ -498,6 +675,10 @@ function playKoSequence(winnerId) {
   if (winnerSide && winnerSide === 'right' && charRight) charRight.classList.add('is-ko-winner');
   if (loserSide && loserSide === 'left' && charLeft) charLeft.classList.add('is-ko-loser');
   if (loserSide && loserSide === 'right' && charRight) charRight.classList.add('is-ko-loser');
+
+  // Phase E-4: KO 사운드 — 추락(슈우웅) 즉시 + 승리 폭발(펑) 1.5초쯤.
+  tugSynth.koFall();
+  setTimeout(() => tugSynth.victoryBurst(), 1500);
 
   setTimeout(() => {
     state.koSequenceActive = false;
@@ -834,6 +1015,7 @@ function handleTapInput(event) {
     const seq = sendSeq({ type: 'TUG_TAP', ringId: null, clientTapAt: clientNow });
     if (seq != null) pendingPredictions.set(seq, 'miss');
     showJudgement('miss', myPlayerId);
+    tugSynth.miss();
     return;
   }
 
@@ -842,6 +1024,10 @@ function handleTapInput(event) {
   state.resolvedRingIds.add(ring.id);
   const predicted = predictJudgement(ring, serverNow);
   showJudgement(predicted, myPlayerId);
+  // Phase E-4: 낙관적 사운드 — 서버가 다른 판정을 내려도 OK (사운드는 즉각이 손맛에 핵심).
+  if (predicted === 'perfect') tugSynth.perfect();
+  else if (predicted === 'good') tugSynth.good();
+  else tugSynth.miss();
 
   // 낙관적 ropePos 살짝 적용 — 서버 정정으로 부드럽게 보간됨
   const me = state.players.find((p) => p.id === myPlayerId);
@@ -990,6 +1176,26 @@ document.addEventListener('DOMContentLoaded', () => {
       sendRaw({ type: 'TUG_READY', ready: true });
       readyBtn.disabled = true;
       readyBtn.textContent = '대기 중...';
+    });
+  }
+
+  // Phase E-4: 사용자 첫 인터랙션 시 AudioContext resume — autoplay 정책 우회.
+  const resumeAudioOnce = () => {
+    tugSynth.ensure();
+    tugSynth.resume();
+    document.removeEventListener('pointerdown', resumeAudioOnce);
+    document.removeEventListener('keydown', resumeAudioOnce);
+  };
+  document.addEventListener('pointerdown', resumeAudioOnce);
+  document.addEventListener('keydown', resumeAudioOnce);
+
+  // Phase E-4: 음소거 토글 — play-topbar 우상단 🔊/🔇 버튼.
+  const muteBtn = document.getElementById('tugMuteBtn');
+  if (muteBtn) {
+    muteBtn.addEventListener('click', () => {
+      tugSynth.setEnabled(!tugSynth.enabled);
+      muteBtn.textContent = tugSynth.enabled ? '🔊' : '🔇';
+      muteBtn.setAttribute('aria-pressed', String(!tugSynth.enabled));
     });
   }
 

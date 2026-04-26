@@ -190,6 +190,26 @@ h2 {
   font-weight: 800;
 }
 
+/* Phase E-4: 사운드 음소거 토글 */
+.tug-mute-btn {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(240, 109, 47, 0.28);
+  background: #fffaf3;
+  font-size: 1rem;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.tug-mute-btn[aria-pressed="true"] {
+  background: #f8e3e3;
+  color: var(--muted);
+}
+
 .play-panel {
   min-height: 560px;
   overflow: hidden;
