@@ -30,6 +30,8 @@ const state = {
   players: [],
   myCharacter: TUG_DEFAULT_CHARACTER,
   iAmReady: false,
+  winnerId: null,
+  endReason: null,
 };
 
 // === DOM 캐시 ===
@@ -137,6 +139,8 @@ function applyStateSync(serverState) {
   state.startedAt = serverState.startedAt ?? null;
   state.ropePos = serverState.ropePos ?? 0;
   state.players = Array.isArray(serverState.players) ? serverState.players : [];
+  state.winnerId = serverState.winnerId ?? null;
+  state.endReason = serverState.endReason ?? null;
 
   const me = state.players.find((p) => p.id === myPlayerId);
   if (me) {
@@ -156,20 +160,52 @@ function applyStateSync(serverState) {
       break;
     case 'finished':
       showResultScreen();
+      renderResult();
       break;
   }
 }
 
 function handleGameEnd(msg) {
   state.phase = 'finished';
+  state.winnerId = msg.winnerId ?? null;
+  state.endReason = msg.reason ?? null;
   showResultScreen();
-  const reasonText = msg.reason === 'abandoned'
-    ? '상대가 나갔습니다.'
-    : msg.reason === 'ko'
-      ? 'KO!'
-      : '시간 종료';
+  renderResult();
+}
+
+function renderResult() {
   const titleEl = document.getElementById('resultTitle');
-  if (titleEl) titleEl.textContent = reasonText;
+  const detailEl = document.getElementById('resultDetail');
+  if (!titleEl) return;
+
+  let title = '결과';
+  if (state.endReason === 'abandoned') {
+    title = '상대가 나갔습니다';
+  } else if (state.endReason === 'ko') {
+    title = state.winnerId === myPlayerId ? 'KO 승!' : 'KO 패배';
+  } else if (state.endReason === 'timeout') {
+    if (state.winnerId == null) title = '무승부';
+    else title = state.winnerId === myPlayerId ? '시간 종료 — 승리' : '시간 종료 — 패배';
+  }
+  titleEl.textContent = title;
+
+  if (detailEl) {
+    if (state.endReason == null) {
+      detailEl.textContent = '결과를 불러오는 중...';
+    } else {
+      const winner = state.players.find((p) => p.id === state.winnerId);
+      const me = state.players.find((p) => p.id === myPlayerId);
+      const opponent = state.players.find((p) => p.id !== myPlayerId);
+      const ropePosText = `최종 줄 위치: ${state.ropePos.toFixed(2)}`;
+      const winnerText = winner
+        ? `${winner.name} 승`
+        : state.endReason === 'abandoned'
+          ? '상대 이탈'
+          : '무승부';
+      const youText = me ? `당신: ${me.name}${opponent ? ` · 상대: ${opponent.name}` : ''}` : '';
+      detailEl.textContent = `${winnerText} · ${ropePosText}${youText ? ` · ${youText}` : ''}`;
+    }
+  }
 }
 
 // === Setup 화면 렌더 ===

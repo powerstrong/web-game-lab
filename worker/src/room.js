@@ -942,6 +942,10 @@ export class GameRoom {
       })),
       winnerId: null,
       endReason: null,
+      // 라운드별 토큰 — 늦게 도착한 setTimeout이 새 라운드를 침범하지 못하게 race guard.
+      // 주의: in-memory만 — DO hibernation 시 setTimeout과 함께 손실됨. Phase C에서 Alarms API로 전환 예정.
+      countdownToken: null,
+      roundToken: null,
     };
     game.roster.forEach(({ id, name, side }) => {
       game.players[id] = {
@@ -1058,17 +1062,56 @@ export class GameRoom {
     if (!this.tugWarGame || this.tugWarGame.phase !== 'waiting') return;
     this.tugWarGame.phase = 'countdown';
     this.tugWarGame.countdownEndsAt = Date.now() + TUG_COUNTDOWN_SECONDS * 1000;
+    const token = randomHex(8);
+    this.tugWarGame.countdownToken = token;
     this._broadcastTugWarStateSync();
-    setTimeout(() => this._tugWarBeginRound(), TUG_COUNTDOWN_SECONDS * 1000);
+    setTimeout(() => this._tugWarBeginRound(token), TUG_COUNTDOWN_SECONDS * 1000);
   }
 
-  _tugWarBeginRound() {
+  _tugWarBeginRound(token) {
     if (!this.tugWarGame || this.tugWarGame.phase !== 'countdown') return;
+    if (this.tugWarGame.countdownToken !== token) return; // 이전 라운드의 늦은 timer 무시
+    this.tugWarGame.countdownToken = null;
     this.tugWarGame.phase = 'playing';
     this.tugWarGame.startedAt = Date.now();
     this.tugWarGame.countdownEndsAt = null;
+    const roundToken = randomHex(8);
+    this.tugWarGame.roundToken = roundToken;
     this._broadcastTugWarStateSync();
-    // Phase C: rhythm ring spawn loop + 30초 만료 타이머
+    // Phase C: rhythm ring spawn loop가 추가됨. 현재는 30초 만료만 처리.
+    setTimeout(() => this._tugWarRoundTimeout(roundToken), TUG_DURATION_MS);
+  }
+
+  _tugWarRoundTimeout(token) {
+    if (!this.tugWarGame || this.tugWarGame.phase !== 'playing') return;
+    if (this.tugWarGame.roundToken !== token) return;
+    this._finishTugWarTimeout();
+  }
+
+  _finishTugWarTimeout() {
+    const game = this.tugWarGame;
+    if (!game || game.phase !== 'playing') return;
+    game.roundToken = null;
+    game.phase = 'finished';
+    game.endReason = 'timeout';
+    // 시간 종료 — ropePos 부호로 승자 결정. Phase B에서는 ropePos가 항상 0이므로 무승부.
+    if (game.ropePos > 0) {
+      const left = Object.values(game.players).find((p) => p.side === 'left');
+      game.winnerId = left?.id || null;
+    } else if (game.ropePos < 0) {
+      const right = Object.values(game.players).find((p) => p.side === 'right');
+      game.winnerId = right?.id || null;
+    } else {
+      game.winnerId = null;
+    }
+    this._broadcastGame({
+      type: 'TUG_GAME_END',
+      reason: 'timeout',
+      winnerId: game.winnerId,
+      finalRopePos: game.ropePos,
+      stats: {},
+    }, 'mallang-tug-war');
+    this._broadcastTugWarStateSync();
   }
 
   _handleTugWarTap(player, msg) {
@@ -1352,6 +1395,9 @@ export class GameRoom {
 
         const inRound = this.tugWarGame.phase === 'countdown' || this.tugWarGame.phase === 'playing';
         if (inRound) {
+          // 라운드 토큰 무효화 — 진행 중이던 setTimeout이 실행돼도 무시되도록.
+          this.tugWarGame.countdownToken = null;
+          this.tugWarGame.roundToken = null;
           this.tugWarGame.phase = 'finished';
           this.tugWarGame.endReason = 'abandoned';
           const survivor = Object.values(this.tugWarGame.players).find((p) => p.connected);

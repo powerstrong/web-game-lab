@@ -313,7 +313,7 @@ Cloudflare Durable Object가 authoritative.
 { type: 'TUG_STATE_SYNC'; state: GameState }
 { type: 'TUG_TAP_RESULT'; ringId: string; playerId: string; judgement: 'perfect' | 'good' | 'miss'; ropeDelta: number; newRopePos: number; clientSeq: number }
 { type: 'TUG_ITEM_RESULT'; itemId: string; playerId: string; effect: string; newRopePos?: number; clientSeq: number }
-{ type: 'TUG_GAME_END'; reason: 'timeout' | 'ko'; winnerId: string | null; finalRopePos: number; stats: Record<string, PlayerStats> }
+{ type: 'TUG_GAME_END'; reason: 'timeout' | 'ko' | 'abandoned'; winnerId: string | null; finalRopePos: number; stats: Record<string, PlayerStats> }
 { type: 'error'; message: string }    // 공통 에러 (소문자 'error' — jump-climber와 동일)
 ```
 
@@ -369,7 +369,7 @@ type GameState = {
   items: Item[];
   stats: Record<string, PlayerStats>;
   winnerId?: string | null;
-  endReason?: 'timeout' | 'ko';
+  endReason?: 'timeout' | 'ko' | 'abandoned';
 };
 
 type Player = {
@@ -684,13 +684,15 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
   - `.tug-timer` 상단 중앙 알약 / `.countdown-overlay` 풀스크린 블러+숫자
 
 **디자인 선택**:
-- `endReason: 'abandoned'`는 SPEC v0.4의 명시 제외 케이스 — Phase B에서 추가 (timeout/ko 외 disconnect 처리 필요).
+- `endReason` 타입을 `'timeout' | 'ko' | 'abandoned'`로 확장 (v0.6, codex 리뷰 반영). disconnect를 KO로 위장하면 통계 의미가 흐려져서 별도 reason으로 명시.
 - STATE_SYNC가 `serverTimeMs` 포함 — Phase C에서 RTT 보정 시 활용.
 - 클라는 `localTick`(rAF)으로 STATE_SYNC 사이 카운트다운/타이머를 보간. 권위는 STATE_SYNC가 결정.
+- countdown/round 모두 `randomHex(8)` token으로 race guard. 새 라운드 시작/abandoned 시 토큰을 무효화해서 늦게 도착한 setTimeout이 새 라운드를 침범하지 못하게 차단.
+- 30초 만료 시 `ropePos` 부호로 winner 결정 (Phase B는 항상 0이라 자동 무승부, Phase C부터 의미 있음).
 
 **Phase B에서 미해결로 남긴 이슈 (Phase C 시 처리)**:
+- **DO hibernation에 대한 in-memory state 손실 (codex Critical)**: 현재 `tugWarGame`/setTimeout 모두 in-memory. 운영상 hibernation은 짧은 라운드(33초)에서 발생하기 어렵지만, 안전을 위해 Phase C에서 Cloudflare Alarms API + storage 미러링으로 전환 예정. jump-climber도 동일 패턴(setInterval/setTimeout)이라 통합 리팩터 후보.
 - `game.js`의 `sendSeq()` 정의됨, 호출처 없음 — Phase C에서 `TUG_TAP`/`TUG_ITEM_GRAB`에 사용 예정.
-- 30초 만료 타이머는 Phase C에서 ring tick과 함께 추가 (현재는 `_tugWarBeginRound` 후 자동 종료 없음).
 
 ### Phase C — 리듬 링 + TAP 판정 + ropePos (예정)
 
@@ -764,6 +766,18 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 ---
 
 ## 변경 이력
+
+### v0.6 (Phase B codex 리뷰 반영)
+
+**endReason 타입 확장**: `'timeout' | 'ko'` → `'timeout' | 'ko' | 'abandoned'`. disconnect를 별도 reason으로 명시 (TUG_GAME_END.reason / GameState.endReason 모두).
+
+**countdown/round race guard**: 라운드별 `randomHex(8)` 토큰을 발급하고 setTimeout 핸들러가 토큰 일치 시에만 phase 전환. 이전 라운드의 늦게 도착한 timer가 새 라운드를 조기 종료시키지 못하게 차단.
+
+**30초 만료 타이머 추가**: `_tugWarBeginRound` 직후 `setTimeout(_tugWarRoundTimeout, TUG_DURATION_MS)`. 시간 종료 시 ropePos 부호로 winner 결정 + TUG_GAME_END(`reason: 'timeout'`) 브로드캐스트. Phase B에서는 ropePos가 항상 0이라 자동 무승부.
+
+**클라 finished STATE_SYNC 처리**: `applyStateSync()`의 `finished` 분기에서 `state.winnerId/endReason` 기반 result render — 재접속/관전자도 결과를 본다.
+
+**Critical 이연**: DO hibernation 시 in-memory state(setTimeout 포함) 손실 위험은 Phase C에서 Cloudflare Alarms API + storage 미러링으로 일괄 처리 예정.
 
 ### v0.5 (Phase B 완료)
 
