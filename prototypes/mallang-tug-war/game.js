@@ -78,7 +78,14 @@ const state = {
   // Phase E-1: 아이템 미러
   items: [],            // [{ id, itemType, spawnedAt, expiresAt, ropePosAtSpawn, fallProgress }]
   iceTintUntilMs: 0,    // 얼음별사탕 효과 중인 본인 화면 청록 틴트 만료 시각 (performance.now 기준)
+  // Phase E-2: KO 시퀀스 — 서버 finished 도달 후 클라가 1.8초 자체 보류하고 단계별 모션을 보임.
+  koSequenceActive: false,
 };
+
+// SPEC line 491~499: 7단계 KO 시퀀스. 단계별 시작 시각(ms 진행 시간) — CSS animation은
+// 통합 keyframe 사용, JS는 단계 클래스만 토글한다.
+const TUG_KO_SEQUENCE_TOTAL_MS = 1800;
+const TUG_KO_SEQUENCE_RESULT_DELAY_MS = 1800; // 결과 화면 전환은 시퀀스 종료 시점.
 
 const TUG_ITEM_VISUAL = {
   cottoncandy_bomb: { icon: '🍬', name: '솜사탕 폭탄' },
@@ -419,8 +426,8 @@ function applyStateSync(serverState) {
       renderPlay();
       break;
     case 'finished':
-      showResultScreen();
-      renderResult();
+      // KO이면 시퀀스 1.8초 보류 후 결과 화면. 그 외(timeout/abandoned)는 즉시.
+      finalizeFinish();
       break;
   }
 }
@@ -429,8 +436,59 @@ function handleGameEnd(msg) {
   state.phase = 'finished';
   state.winnerId = msg.winnerId ?? null;
   state.endReason = msg.reason ?? null;
-  showResultScreen();
-  renderResult();
+  finalizeFinish();
+}
+
+// finished phase 진입 시 — ko면 1.8초 KO 시퀀스 후 결과 화면, 그 외(timeout/abandoned)는 즉시.
+function finalizeFinish() {
+  if (state.endReason === 'ko' && state.winnerId && !state.koSequenceActive) {
+    playKoSequence(state.winnerId);
+  } else if (!state.koSequenceActive) {
+    showResultScreen();
+    renderResult();
+  }
+  // ko 시퀀스 진행 중이면 무시 (중복 시작 방지).
+}
+
+function playKoSequence(winnerId) {
+  state.koSequenceActive = true;
+  const arena = document.querySelector('.arena');
+  const left = state.players.find((p) => p.side === 'left');
+  const right = state.players.find((p) => p.side === 'right');
+  const winnerSide = left?.id === winnerId ? 'left' : (right?.id === winnerId ? 'right' : null);
+  const loserSide = winnerSide === 'left' ? 'right' : (winnerSide === 'right' ? 'left' : null);
+
+  // 진행 중이던 효과/오버레이 정리.
+  if (arena) {
+    arena.classList.remove('is-ice-tinted');
+    arena.classList.remove('is-clutch');
+    arena.classList.add('is-ko-sequence');
+  }
+  state.iceTintUntilMs = 0;
+
+  // 캐릭터 슬롯에 winner/loser 클래스 부여 — CSS가 단계별 애니메이션을 통합 keyframe으로 진행.
+  const charLeft = document.querySelector('.tug-character--left');
+  const charRight = document.querySelector('.tug-character--right');
+  [charLeft, charRight].forEach((el) => {
+    if (!el) return;
+    el.classList.remove('is-ko-winner', 'is-ko-loser');
+    delete el.dataset.ropeStateSelf;
+    delete el.dataset.ropeStateOther;
+  });
+  if (winnerSide && winnerSide === 'left' && charLeft) charLeft.classList.add('is-ko-winner');
+  if (winnerSide && winnerSide === 'right' && charRight) charRight.classList.add('is-ko-winner');
+  if (loserSide && loserSide === 'left' && charLeft) charLeft.classList.add('is-ko-loser');
+  if (loserSide && loserSide === 'right' && charRight) charRight.classList.add('is-ko-loser');
+
+  setTimeout(() => {
+    state.koSequenceActive = false;
+    if (arena) {
+      arena.classList.remove('is-ko-sequence');
+      // ko 클래스는 결과 화면 전환과 함께 정리 — 단, 캐릭터 클래스는 결과 화면에 영향 없으니 그대로 둔다.
+    }
+    showResultScreen();
+    renderResult();
+  }, TUG_KO_SEQUENCE_RESULT_DELAY_MS);
 }
 
 function renderResult() {

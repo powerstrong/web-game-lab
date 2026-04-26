@@ -903,6 +903,26 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 
 ## 변경 이력
 
+### v0.13 (Phase E-2 완료 — KO 1.8초 7단계 시퀀스)
+
+**클라 전용 구현** — 서버 변경 없음. KO 발생 시 서버는 즉시 `phase: 'finished', endReason: 'ko'`로 전환하지만, 클라가 결과 화면 전환을 1.8초 보류하고 그동안 SPEC line 491~499의 7단계 연출을 단일 통합 keyframe으로 진행한다.
+
+**`game.js`**:
+- `state.koSequenceActive` 플래그 (중복 시작 방지)
+- `finalizeFinish()` — `endReason==='ko' && winnerId`이면 `playKoSequence()`, 아니면 즉시 `showResultScreen+renderResult`
+- `handleGameEnd` + `applyStateSync('finished')` 둘 다 `finalizeFinish()`로 합류 (메시지 도착 순서 무관)
+- `playKoSequence(winnerId)` — `.arena.is-ko-sequence` + 캐릭터에 `.is-ko-winner / .is-ko-loser` 부여, ice/clutch overlay 정리, 1800ms 후 결과 화면
+
+**`style.css`**:
+- `.arena.is-ko-sequence` 활성 시 `#rhythmRing / .judgement-popup / #tugTimer` 페이드 아웃, `::after / ::before` (클러치/critical) 강제 정지
+- `.tug-character.is-ko-loser` `tug-ko-loser` keyframe — 발끝버팀(10%) → 끌리기(22%) → 짓눌림(38%) → 반동(50%) → 놓침(60%) → 추락(83%) → 시야밖(100%)
+- `.tug-character.is-ko-winner` `tug-ko-winner` keyframe — 으랏차(22%) → 반동(38~50%) → 트로피 자세(83~100%) + drop-shadow glow
+
+**디자인 결정**:
+- 서버는 KO 결정 즉시 phase=finished. 클라 보류로 1.8초 연출 — 서버/네트워크 라운드트립 부담 없이 자연스러운 손맛 유지.
+- 단일 keyframe에 7단계를 % 키프레임으로 묶음 — JS 단계 토글 없이 CSS 자연 진행.
+- abandoned/timeout은 시퀀스 없이 즉시 전환 — KO만의 하이라이트 보존.
+
 ### v0.12 (Phase E-1 gemini 리뷰 반영)
 
 **Critical — CSS pseudo 충돌**: `.arena.is-ice-tinted::after`와 `.arena[data-rope-state="critical"]::after`가 같은 `::after`를 공유해 critical과 ice tint 동시 활성 시 충돌. `.tug-ice-tint` 별도 div + arena 자식으로 이동, `.arena.is-ice-tinted .tug-ice-tint` opacity 토글로 변경. critical ::after는 그대로 유지 → 두 비네팅이 독립 z-layer로 공존.

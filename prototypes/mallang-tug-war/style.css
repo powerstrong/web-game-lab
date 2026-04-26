@@ -330,6 +330,59 @@ h2 {
   opacity: 1;
 }
 
+/* Phase E-2: KO 시퀀스 1.8초 7단계 연출 (SPEC line 491~499).
+   .arena.is-ko-sequence 활성 시 캐릭터에 .is-ko-winner / .is-ko-loser 클래스가 붙고,
+   각각 통합 keyframe으로 단계별(0~10%/10~22%/22~38%/38~50%/50~83%/83~100%) 모션을 진행한다.
+   리듬 링/판정 텍스트는 시퀀스 동안 노출되지 않으므로 흔들림은 신경 쓰지 않아도 됨. */
+.arena.is-ko-sequence #rhythmRing,
+.arena.is-ko-sequence .judgement-popup,
+.arena.is-ko-sequence #tugTimer {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease-out;
+}
+
+.arena.is-ko-sequence::after,
+.arena.is-ko-sequence::before {
+  /* 클러치/critical 비네팅을 시퀀스 동안 정리 — KO 자체 연출에 집중. */
+  animation: none !important;
+  opacity: 0 !important;
+}
+
+.tug-character.is-ko-loser img {
+  animation: tug-ko-loser 1800ms cubic-bezier(0.5, 0.0, 0.6, 1.0) forwards !important;
+  transform-origin: center bottom;
+}
+
+.tug-character.is-ko-winner img {
+  animation: tug-ko-winner 1800ms ease-out forwards !important;
+  transform-origin: center bottom;
+}
+
+/* 패자 시퀀스 — SPEC 단계 (0~0.2s 발끝버팀, 0.2~0.4s 끌려, 0.4~0.7s 짓눌림, 0.7~0.9s 놓침,
+   0.9~1.5s 추락, 1.5~1.8s 시야 밖) */
+@keyframes tug-ko-loser {
+  0%   { transform: translateY(0) rotate(0) scale(1, 1); opacity: 1; filter: none; }
+  10%  { transform: translateY(2px) rotate(-3deg) scale(1.04, 0.96); opacity: 1; }
+  22%  { transform: translateY(4px) rotate(-8deg) scale(1.05, 0.92); opacity: 1; }
+  38%  { transform: translateY(8px) rotate(-12deg) scale(1.10, 0.82); opacity: 1; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3)); }
+  50%  { transform: translateY(12px) rotate(-14deg) scale(1.06, 0.86); opacity: 1; }
+  60%  { transform: translateY(40px) rotate(-22deg) scale(0.92, 0.92); opacity: 1; }
+  83%  { transform: translateY(140px) rotate(-40deg) scale(0.5, 0.5); opacity: 0.7; }
+  100% { transform: translateY(220px) rotate(-60deg) scale(0.2, 0.2); opacity: 0; }
+}
+
+/* 승자 시퀀스 — 0.2~0.4s 으랏차 당김, 0.7~0.9s 반동 회복, 1.5~1.8s 트로피 자세 */
+@keyframes tug-ko-winner {
+  0%   { transform: translateY(0) rotate(0) scale(1, 1); }
+  10%  { transform: translateY(0) rotate(2deg) scale(1.0, 1.0); }
+  22%  { transform: translateY(-4px) rotate(6deg) scale(1.06, 0.94); }
+  38%  { transform: translateY(-2px) rotate(2deg) scale(1.0, 1.0); }
+  50%  { transform: translateY(-6px) rotate(-2deg) scale(1.02, 0.98); }
+  83%  { transform: translateY(-10px) rotate(0) scale(1.08, 1.08); filter: drop-shadow(0 8px 8px rgba(255, 200, 70, 0.55)); }
+  100% { transform: translateY(-12px) rotate(0) scale(1.12, 1.12); filter: drop-shadow(0 10px 10px rgba(255, 200, 70, 0.7)); }
+}
+
 .tug-timer {
   position: absolute;
   top: 14px;
