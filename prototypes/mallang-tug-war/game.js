@@ -291,18 +291,16 @@ function handleMessage(msg) {
 }
 
 function handleTapResult(msg) {
-  const prevRopePos = state.ropePos;
-  let ropeDelta = 0;
-  // 서버 권위 — ropePos는 서버 값으로 정정 (낙관적 예측 보정)
+  // 서버 권위 — ropePos는 서버 값으로 정정 (낙관적 예측 보정).
   if (Number.isFinite(msg.newRopePos)) {
-    ropeDelta = msg.newRopePos - prevRopePos;
     state.ropePos = msg.newRopePos;
-  }
-  if (msg.judgement === 'perfect') {
-    recordPerfectPull(msg.playerId, ropeDelta);
-  }
-  if (Number.isFinite(msg.newRopePos)) {
     renderRope();
+  }
+  // perfect tension boost는 서버가 보낸 ropeDelta를 직접 사용 — 클라 낙관 적용 후
+  // newRopePos-prevRopePos는 0이 될 수 있어 페어링이 깨지는 race 차단.
+  if (msg.judgement === 'perfect') {
+    const serverDelta = Number.isFinite(msg.ropeDelta) ? msg.ropeDelta : 0;
+    recordPerfectPull(msg.playerId, serverDelta);
   }
   // 내 탭에 대한 응답이면 pending 예측을 꺼내서 동일하면 popup 재시작 생략 (Minor 4 회피)
   if (msg.playerId === myPlayerId && msg.clientSeq != null) {
@@ -565,9 +563,11 @@ function renderRing() {
   shrink.style.transform = `translate(-50%, -50%) scale(${scale})`;
   shrink.style.opacity = String(Math.max(0, 1 - Math.max(0, t - 1) / 0.4));
 
-  // 퍼펙트 윈도우 근처에서 가이드 글로우
+  // 퍼펙트 윈도우 근처에서 가이드 글로우 — ring-local window 우선 (페이즈 race 차단).
+  const fallback = getRhythmConfigForStage(state.phaseStage);
+  const perfectWindow = Number.isFinite(ring.perfectWindowMs) ? ring.perfectWindowMs : fallback.perfectWindowMs;
   const delta = Math.abs(serverNow - ring.centerAt);
-  if (delta <= TUG_RHYTHM_CONFIG.perfectWindowMs) {
+  if (delta <= perfectWindow) {
     guide.classList.add('is-perfect');
   } else {
     guide.classList.remove('is-perfect');
@@ -594,12 +594,14 @@ function showJudgement(judgement, byPlayerId) {
 }
 
 // 클라 낙관적 판정 — 서버 응답 전 즉시 텍스트 표시. 결과는 TUG_TAP_RESULT가 권위.
-// 페이즈 2에서는 perfect/good window가 단축됨.
+// ring-local window를 우선 사용 (페이즈 전환 race 차단). 누락 시 phaseStage 기반 fallback.
 function predictJudgement(ring, tapNow) {
-  const cfg = getRhythmConfigForStage(state.phaseStage);
+  const fallback = getRhythmConfigForStage(state.phaseStage);
+  const perfectWindow = Number.isFinite(ring.perfectWindowMs) ? ring.perfectWindowMs : fallback.perfectWindowMs;
+  const goodWindow = Number.isFinite(ring.goodWindowMs) ? ring.goodWindowMs : fallback.goodWindowMs;
   const delta = Math.abs(tapNow - ring.centerAt);
-  if (delta <= cfg.perfectWindowMs) return 'perfect';
-  if (delta <= cfg.goodWindowMs) return 'good';
+  if (delta <= perfectWindow) return 'perfect';
+  if (delta <= goodWindow) return 'good';
   return 'miss';
 }
 

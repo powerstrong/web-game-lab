@@ -1053,12 +1053,16 @@ export class GameRoom {
   }
 
   _serializeTugRing(ring) {
-    // resolvedBy는 클라가 알 필요 없으므로 제외 (이중 판정 방지는 서버 권한)
+    // resolvedBy는 클라가 알 필요 없으므로 제외 (이중 판정 방지는 서버 권한).
+    // window/shrink는 ring-local — 클라 예측/glow가 페이즈 전환 race에 흔들리지 않게 함께 송출.
     return {
       id: ring.id,
       spawnedAt: ring.spawnedAt,
       centerAt: ring.centerAt,
       expiresAt: ring.expiresAt,
+      perfectWindowMs: ring.perfectWindowMs,
+      goodWindowMs: ring.goodWindowMs,
+      shrinkDurationMs: ring.shrinkDurationMs,
     };
   }
 
@@ -1226,6 +1230,11 @@ export class GameRoom {
       spawnedAt,
       centerAt,
       expiresAt,
+      // ring-local cfg snapshot — 페이즈 경계에서 spawn된 ring은 spawn 시점 window로 판정.
+      // 서버/클라 모두 이 값을 권위로 사용해 1→2 전환 race 방지.
+      perfectWindowMs: cfg.perfectWindowMs,
+      goodWindowMs: cfg.goodWindowMs,
+      shrinkDurationMs: cfg.ringShrinkDurationMs,
       resolvedBy: {},
     };
   }
@@ -1319,13 +1328,12 @@ export class GameRoom {
     if (ring.resolvedBy[player.id]) return; // 이중 판정 방지
 
     // 서버 도착 시각으로 판정 (RTT 보정은 후속 — 현재는 단순화).
-    // 페이즈 2에서는 perfect/good window가 단축됨.
-    const cfg = getTugRhythmConfig(game);
+    // ring-local cfg를 사용해 페이즈 1→2 경계 race를 차단 — 1로 spawn된 ring은 끝까지 1의 window.
     const now = Date.now();
     const delta = Math.abs(now - ring.centerAt);
     let judgement;
-    if (delta <= cfg.perfectWindowMs) judgement = 'perfect';
-    else if (delta <= cfg.goodWindowMs) judgement = 'good';
+    if (delta <= ring.perfectWindowMs) judgement = 'perfect';
+    else if (delta <= ring.goodWindowMs) judgement = 'good';
     else judgement = 'miss';
 
     ring.resolvedBy[player.id] = judgement;

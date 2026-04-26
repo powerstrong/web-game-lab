@@ -272,7 +272,7 @@ const ITEMS = {
 - 화면 가장자리에 위험 비네팅
 
 **룰 변화 (서브, 약하게):**
-- 리듬 링 900→700ms 간격
+- 리듬 링 1000→820ms 간격 (단일 currentRing 정책 + ring lifetime을 고려한 v0.9 갱신값)
 - 퍼펙트 창 120→110ms (10ms만, 거의 체감 안 될 정도)
 - 풀 파워 수치는 **변경하지 않음**
 
@@ -366,7 +366,7 @@ type GameState = {
   timeLeftMs: number;
   ropePos: number;              // -1.0 ~ +1.0, P1 기준 양수
   currentRing: Ring | null;
-  items: Item[];
+  items?: Item[];               // Phase E (아이템 시스템) 도입 후 활성. 그 전엔 미송출.
   stats: Record<string, PlayerStats>;
   winnerId?: string | null;
   endReason?: 'timeout' | 'ko' | 'abandoned';
@@ -387,7 +387,11 @@ type Ring = {
   spawnedAt: number;
   centerAt: number;              // 정확한 일치 시각 (서버 기준)
   expiresAt: number;
-  resolvedBy: Record<string, 'perfect' | 'good' | 'miss'>;  // 플레이어별 판정 기록
+  resolvedBy: Record<string, 'perfect' | 'good' | 'miss'>;  // 플레이어별 판정 기록 (서버 전용)
+  // ring-local cfg snapshot — 페이즈 1→2 전환 시 활성 ring이 spawn 시점 cfg로 끝까지 판정되도록.
+  perfectWindowMs: number;
+  goodWindowMs: number;
+  shrinkDurationMs: number;
 };
 
 type Item = {
@@ -402,16 +406,19 @@ type Item = {
 };
 
 type PlayerStats = {
+  // Phase C부터 활성 — 매 탭마다 갱신.
   perfects: number;
   goods: number;
   misses: number;
-  itemsGrabbed: number;
-  totalPullContribution: number;     // 누적 풀 기여도
-  longestPerfectStreak: number;      // 최대 연속 Perfect 수
-  worstRopePos: number;              // 게임 중 가장 위험했던 ropePos (자기 기준 절대값 최대)
-  timeInDangerMs: number;            // danger/critical 상태 누적 체류 시간 (찌부 버틴 시간)
-  comebackFromRopePos?: number;      // 가장 깊이 밀렸다가 균형/우세로 복귀한 시점의 위치
-  finalBlowAt?: number;              // KO/우세 결정 시점의 게임 시각 (ms)
+  itemsGrabbed: number;              // Phase E까지는 항상 0.
+  totalPullContribution: number;     // 누적 풀 기여도 (|ropeDelta| 합).
+  longestPerfectStreak: number;      // 최대 연속 Perfect 수.
+  currentPerfectStreak: number;      // 진행 중 streak (현재 perfect 연속 횟수). good/miss 시 0 리셋.
+  // Phase E (결과 화면 명장면 회상) 도입 후 활성. 그 전엔 미송출/undefined.
+  worstRopePos?: number;             // 게임 중 가장 위험했던 ropePos (자기 기준 절대값 최대).
+  timeInDangerMs?: number;           // danger/critical 상태 누적 체류 시간 (찌부 버틴 시간).
+  comebackFromRopePos?: number;      // 가장 깊이 밀렸다가 균형/우세로 복귀한 시점의 위치.
+  finalBlowAt?: number;              // KO/우세 결정 시점의 게임 시각 (ms).
 };
 
 type RopeState = 'balanced' | 'pushed' | 'struggling' | 'danger' | 'critical';
@@ -861,6 +868,18 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 ---
 
 ## 변경 이력
+
+### v0.10 (Phase D codex 리뷰 반영)
+
+**Major 1 — Ring-local cfg snapshot**: ring 객체에 `perfectWindowMs / goodWindowMs / shrinkDurationMs`를 spawn 시점 cfg로 저장. 서버 `_handleTugWarTap`은 ring-local window로 판정, 클라 `predictJudgement` / `renderRing` glow도 ring-local window 우선 사용. 페이즈 1→2 전환 시 활성 ring이 phase 2 window로 갑자기 판정되는 race를 차단.
+
+**Major 2 — `handleTapResult` ropeDelta 직접 사용**: 클라가 서버 `msg.ropeDelta`를 그대로 사용하도록 변경. 기존에는 `newRopePos - prevRopePos`로 재계산해서 낙관적 ropePos 적용 후 0이 되어 perfect 쌍 tension boost가 깨졌음.
+
+**Minor 2 — GameState/PlayerStats 타입 동기화**: `items?` Phase E 옵셔널 명시, `Ring` 타입에 ring-local cfg 필드 추가, `PlayerStats`를 Phase C 활성 / Phase E 옵셔널로 분리. `currentPerfectStreak` 추가 명시.
+
+**Minor 3 — `.arena.is-clutch` filter 분리**: filter 애니메이션을 `.arena` 자체가 아닌 `.arena.is-clutch::before` 배경 전용 pseudo로 옮김. 리듬 링/판정 텍스트 시인성 보호 (SPEC line 514 "리듬 링 표시 중 흔들림 금지" 준수).
+
+**Minor 4 — SPEC 700ms 잔존 정리**: 페이즈 2 룰 변화 서술의 "900→700ms 간격" → "1000→820ms 간격"으로 v0.9 갱신값에 맞춤.
 
 ### v0.9 (Phase D 완료)
 
