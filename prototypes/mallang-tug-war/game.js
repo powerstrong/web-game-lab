@@ -19,18 +19,40 @@ function characterAssetPath(characterId) {
   return `../jump-climber/assets/${encodeURIComponent(meta.asset)}`;
 }
 
-// === 리듬/풀 상수 (서버 SPEC v0.6과 일치) ===
-const TUG_RHYTHM_CONFIG = {
-  ringIntervalMs: 900,
+// === 리듬/풀 상수 (서버 SPEC v0.9와 일치) — phase 1/2로 분리 ===
+const TUG_RHYTHM_CONFIG_PHASE1 = {
+  ringIntervalMs: 1000,
   ringShrinkDurationMs: 700,
   perfectWindowMs: 120,
   goodWindowMs: 280,
 };
 
+const TUG_RHYTHM_CONFIG_PHASE2 = {
+  ringIntervalMs: 820,
+  ringShrinkDurationMs: 550,
+  perfectWindowMs: 110,
+  goodWindowMs: 240,
+};
+
+// 후방 호환용 — 기존 TUG_RHYTHM_CONFIG 참조는 phase 1을 가리킴.
+const TUG_RHYTHM_CONFIG = TUG_RHYTHM_CONFIG_PHASE1;
+
+function getRhythmConfigForStage(stage) {
+  return stage === 2 ? TUG_RHYTHM_CONFIG_PHASE2 : TUG_RHYTHM_CONFIG_PHASE1;
+}
+
 const TUG_PULL_POWER = {
   perfect: 0.040,
   good: 0.018,
   miss: -0.005,
+};
+
+const ROPE_VISUAL_CONFIG = {
+  perfectPairWindowMs: 200,
+  tensionBoost: 0.3,
+  tensionDecayPerFrame: 0.96,
+  wobbleDurationMs: 400,
+  wobbleFrequency: 0.04,
 };
 
 // === 클라 상태 (서버 권위 상태의 미러) ===
@@ -51,6 +73,8 @@ const state = {
   serverClockOffsetMs: 0,        // serverTimeMs - clientNow (로컬 ring 진행도 계산용)
   resolvedRingIds: new Set(),    // 이미 탭한 ring (이중 탭 차단)
   lastJudgement: null,           // { judgement, at, byPlayerId }
+  // Phase D: 페이즈 2 클러치 — 서버 권위 stage(1|2) 미러
+  phaseStage: 1,
 };
 
 // === DOM 캐시 ===
@@ -126,6 +150,121 @@ function sendSeq(msg) {
 // clientSeq → 예측 판정. TAP_RESULT 도착 시 동일 판정이면 popup 재시작 생략.
 const pendingPredictions = new Map();
 
+const ropeVisual = {
+  pos: 0,
+  tension: 0,
+  wobble: 0,
+  stretch: 0,
+  lastSampleAt: null,
+  lastSamplePos: 0,
+  lastWobbleAt: -Infinity,
+  wobbleDirection: 1,
+  lastPerfectPullAt: {
+    left: -Infinity,
+    right: -Infinity,
+  },
+  lastAppliedMotionKey: '',
+};
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function classifyRopeState(ropePos) {
+  const abs = Math.abs(ropePos);
+  if (abs < 0.20) return 'balanced';
+  if (abs < 0.45) return 'pushed';
+  if (abs < 0.70) return 'struggling';
+  if (abs < 0.90) return 'danger';
+  return 'critical';
+}
+
+function inferPullSide(playerId, ropeDelta) {
+  const player = state.players.find((p) => p.id === playerId);
+  if (player?.side === 'left' || player?.side === 'right') return player.side;
+  if (ropeDelta > 0) return 'left';
+  if (ropeDelta < 0) return 'right';
+  return null;
+}
+
+function recordPerfectPull(playerId, ropeDelta, now = performance.now()) {
+  const side = inferPullSide(playerId, ropeDelta);
+  ropeVisual.lastWobbleAt = now;
+  ropeVisual.wobbleDirection = side === 'right' ? -1 : 1;
+
+  if (!side || Math.abs(ropeDelta) <= 0.0001) return;
+
+  ropeVisual.lastPerfectPullAt[side] = now;
+  const otherSide = side === 'left' ? 'right' : 'left';
+  const pairedRecently = now - ropeVisual.lastPerfectPullAt[otherSide] <= ROPE_VISUAL_CONFIG.perfectPairWindowMs;
+  if (pairedRecently) {
+    ropeVisual.tension = clamp01(ropeVisual.tension + ROPE_VISUAL_CONFIG.tensionBoost);
+  }
+}
+
+function updateRopeVisualState(now = performance.now()) {
+  const dt = ropeVisual.lastSampleAt == null ? 16.67 : Math.max(0, now - ropeVisual.lastSampleAt);
+  const frameScale = dt > 0 ? dt / 16.67 : 1;
+  const posDelta = state.ropePos - ropeVisual.lastSamplePos;
+
+  ropeVisual.tension = clamp01(ropeVisual.tension * Math.pow(ROPE_VISUAL_CONFIG.tensionDecayPerFrame, frameScale));
+  ropeVisual.pos = state.ropePos;
+  ropeVisual.stretch = clamp01(Math.abs(state.ropePos));
+
+  const wobbleElapsed = now - ropeVisual.lastWobbleAt;
+  if (wobbleElapsed >= 0 && wobbleElapsed <= ROPE_VISUAL_CONFIG.wobbleDurationMs) {
+    const decay = 1 - wobbleElapsed / ROPE_VISUAL_CONFIG.wobbleDurationMs;
+    ropeVisual.wobble = Math.sin(wobbleElapsed * ROPE_VISUAL_CONFIG.wobbleFrequency) * decay * ropeVisual.wobbleDirection;
+  } else {
+    ropeVisual.wobble = 0;
+  }
+
+  if (Math.abs(posDelta) > 0.002) {
+    ropeVisual.stretch = clamp01(ropeVisual.stretch + Math.min(0.15, Math.abs(posDelta) * 1.5));
+  }
+
+  ropeVisual.lastSampleAt = now;
+  ropeVisual.lastSamplePos = state.ropePos;
+  return ropeVisual;
+}
+
+function setCharacterMotionState(el, side, ropeState, ropePos) {
+  if (!el) return;
+  delete el.dataset.ropeStateSelf;
+  delete el.dataset.ropeStateOther;
+
+  if (ropeState === 'balanced') return;
+
+  const isSelfAdvantaged = side === 'left' ? ropePos > 0 : ropePos < 0;
+  if (isSelfAdvantaged) {
+    el.dataset.ropeStateSelf = ropeState;
+  } else {
+    el.dataset.ropeStateOther = ropeState;
+  }
+}
+
+function applyRopeMotionState(ropeState, ropePos) {
+  const sign = ropeState === 'balanced' ? 0 : Math.sign(ropePos);
+  const key = `${ropeState}:${sign}`;
+  if (ropeVisual.lastAppliedMotionKey === key) return;
+  ropeVisual.lastAppliedMotionKey = key;
+
+  const arena = document.querySelector('.arena');
+  const charLeftWrap = document.querySelector('.tug-character--left');
+  const charRightWrap = document.querySelector('.tug-character--right');
+
+  if (arena) {
+    if (ropeState === 'balanced') {
+      delete arena.dataset.ropeState;
+    } else {
+      arena.dataset.ropeState = ropeState;
+    }
+  }
+
+  setCharacterMotionState(charLeftWrap, 'left', ropeState, ropePos);
+  setCharacterMotionState(charRightWrap, 'right', ropeState, ropePos);
+}
+
 function handleMessage(msg) {
   switch (msg.type) {
     case 'TUG_JOINED':
@@ -152,9 +291,17 @@ function handleMessage(msg) {
 }
 
 function handleTapResult(msg) {
+  const prevRopePos = state.ropePos;
+  let ropeDelta = 0;
   // 서버 권위 — ropePos는 서버 값으로 정정 (낙관적 예측 보정)
   if (Number.isFinite(msg.newRopePos)) {
+    ropeDelta = msg.newRopePos - prevRopePos;
     state.ropePos = msg.newRopePos;
+  }
+  if (msg.judgement === 'perfect') {
+    recordPerfectPull(msg.playerId, ropeDelta);
+  }
+  if (Number.isFinite(msg.newRopePos)) {
     renderRope();
   }
   // 내 탭에 대한 응답이면 pending 예측을 꺼내서 동일하면 popup 재시작 생략 (Minor 4 회피)
@@ -182,6 +329,14 @@ function applyStateSync(serverState) {
   state.players = Array.isArray(serverState.players) ? serverState.players : [];
   state.winnerId = serverState.winnerId ?? null;
   state.endReason = serverState.endReason ?? null;
+
+  // Phase D: 클러치 stage 미러 + .arena.is-clutch 토글
+  const newStage = serverState.phaseStage === 2 ? 2 : 1;
+  if (newStage !== state.phaseStage) {
+    state.phaseStage = newStage;
+    const arena = document.querySelector('.arena');
+    if (arena) arena.classList.toggle('is-clutch', newStage === 2);
+  }
 
   // 서버 시각 오프셋 — ring 진행도/판정 예측에 사용 (단순 sample, RTT 절반 미보정).
   if (Number.isFinite(serverState.serverTimeMs)) {
@@ -339,19 +494,41 @@ function renderPlay() {
 
 // 줄 위치 시각화 — ropePos에 따라 캐릭터/줄 마커를 평행 이동.
 // ropePos > 0 (left 우세) → 양쪽 모두 right 방향으로 이동 (right가 화면 끝쪽으로 끌려감 효과)
-function renderRope() {
+function renderRope(now = performance.now()) {
   const arena = document.querySelector('.arena');
   if (!arena) return;
   const arenaWidth = arena.clientWidth || 360;
   const offsetPx = state.ropePos * arenaWidth * 0.32;
+  const visual = updateRopeVisualState(now);
+  const ropeState = classifyRopeState(state.ropePos);
 
   const charLeftWrap = document.querySelector('.tug-character--left');
   const charRightWrap = document.querySelector('.tug-character--right');
   const ropeMark = document.querySelector('.tug-rope span');
+  const ropeBody = document.querySelector('.tug-rope-body');
+
+  applyRopeMotionState(ropeState, state.ropePos);
 
   if (charLeftWrap) charLeftWrap.style.transform = `translateX(${offsetPx}px)`;
   if (charRightWrap) charRightWrap.style.transform = `translateX(${offsetPx}px)`;
-  if (ropeMark) ropeMark.style.transform = `translate(calc(-50% + ${offsetPx}px), -50%)`;
+  if (ropeMark) {
+    const markX = offsetPx + visual.wobble * 10;
+    const markY = visual.wobble * 4;
+    const markScaleX = 1 + visual.tension * 0.14 + visual.stretch * 0.06;
+    const markScaleY = 1 + visual.tension * 0.06;
+    ropeMark.style.transform = `translate(calc(-50% + ${markX}px), calc(-50% + ${markY}px)) scale(${markScaleX}, ${markScaleY})`;
+    ropeMark.style.filter = `brightness(${1 + visual.tension * 0.16}) saturate(${1 + visual.tension * 0.35})`;
+    ropeMark.style.boxShadow = `0 ${3 + visual.tension * 4}px ${8 + visual.tension * 10}px rgba(122, 51, 24, ${0.18 + visual.tension * 0.25})`;
+  }
+  if (ropeBody) {
+    const bodyX = offsetPx * 0.12;
+    const bodyY = visual.wobble * 3;
+    const bodyScaleX = 1 + visual.stretch * 0.16 + visual.tension * 0.05;
+    ropeBody.style.transformOrigin = state.ropePos >= 0 ? 'left center' : 'right center';
+    ropeBody.style.transform = `translate(${bodyX}px, ${bodyY}px) scaleX(${bodyScaleX})`;
+    ropeBody.style.filter = `brightness(${1 + visual.tension * 0.12}) saturate(${1 + visual.tension * 0.28})`;
+    ropeBody.style.boxShadow = `0 3px 0 rgba(56, 35, 18, 0.18), 0 0 ${4 + visual.tension * 16}px rgba(247, 95, 95, ${0.08 + visual.tension * 0.22})`;
+  }
 }
 
 // 리듬 링 시각화 — 매 프레임 호출. 가이드(고정 작은 원) + 수축 링(큰 → 작아짐).
@@ -417,10 +594,12 @@ function showJudgement(judgement, byPlayerId) {
 }
 
 // 클라 낙관적 판정 — 서버 응답 전 즉시 텍스트 표시. 결과는 TUG_TAP_RESULT가 권위.
+// 페이즈 2에서는 perfect/good window가 단축됨.
 function predictJudgement(ring, tapNow) {
+  const cfg = getRhythmConfigForStage(state.phaseStage);
   const delta = Math.abs(tapNow - ring.centerAt);
-  if (delta <= TUG_RHYTHM_CONFIG.perfectWindowMs) return 'perfect';
-  if (delta <= TUG_RHYTHM_CONFIG.goodWindowMs) return 'good';
+  if (delta <= cfg.perfectWindowMs) return 'perfect';
+  if (delta <= cfg.goodWindowMs) return 'good';
   return 'miss';
 }
 
@@ -497,6 +676,7 @@ function localTick(now) {
 
   if (state.phase === 'playing') {
     renderRing();
+    renderRope(now);
   }
 
   requestAnimationFrame(localTick);

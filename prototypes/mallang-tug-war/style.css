@@ -206,6 +206,55 @@ h2 {
   overflow: hidden;
 }
 
+.arena::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at center, rgba(255, 77, 77, 0) 46%, rgba(255, 77, 77, 0.22) 78%, rgba(145, 18, 18, 0.42) 100%);
+  transition: opacity 160ms ease-out;
+  z-index: 4;
+}
+
+.arena[data-rope-state="critical"]::after {
+  opacity: 1;
+  animation: tug-critical-vignette 620ms ease-in-out infinite alternate;
+}
+
+/* Phase D: 페이즈 2 클러치 — 배경 어두워지고 양 끝 번개 비네팅. 룰 변화는 약하게, 압박감은 시각으로. */
+.arena.is-clutch {
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.32), rgba(0, 0, 0, 0) 42%),
+    linear-gradient(180deg, #5a4470, #6e5d3a 60%, #2f4d2c);
+  animation: tug-clutch-flash 2200ms ease-in-out infinite;
+}
+
+.arena.is-clutch::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.65;
+  background:
+    radial-gradient(circle at 6% 30%, rgba(255, 252, 200, 0.55) 0%, rgba(255, 252, 200, 0) 22%),
+    radial-gradient(circle at 94% 30%, rgba(255, 252, 200, 0.55) 0%, rgba(255, 252, 200, 0) 22%);
+  z-index: 1;
+  animation: tug-clutch-bolts 1100ms steps(2, end) infinite;
+}
+
+@keyframes tug-clutch-flash {
+  0%, 100% { filter: brightness(0.92) saturate(1.05); }
+  48% { filter: brightness(1.04) saturate(1.18); }
+  52% { filter: brightness(0.86) saturate(1.0); }
+}
+
+@keyframes tug-clutch-bolts {
+  0%, 100% { opacity: 0.18; }
+  50% { opacity: 0.78; }
+}
+
 .tug-timer {
   position: absolute;
   top: 14px;
@@ -233,16 +282,16 @@ h2 {
 }
 
 .tug-rope span {
-  transition: transform 90ms ease-out;
+  transition: filter 90ms ease-out, box-shadow 90ms ease-out;
 }
 
-.tug-rope::before {
-  content: "";
+.tug-rope-body {
   position: absolute;
   inset: 7px 0;
   border-radius: 999px;
   background: repeating-linear-gradient(90deg, #8a5a32 0 12px, #c7833d 12px 24px);
   box-shadow: 0 3px 0 rgba(56, 35, 18, 0.18);
+  will-change: transform, filter, box-shadow;
 }
 
 .tug-rope span {
@@ -272,6 +321,8 @@ h2 {
   height: 76px;
   object-fit: contain;
   filter: drop-shadow(0 6px 4px rgba(56, 35, 18, 0.18));
+  transform-origin: center bottom;
+  will-change: transform, filter;
 }
 
 .tug-character .tug-name {
@@ -302,6 +353,85 @@ h2 {
 
 .tug-character--right {
   right: 12px;
+}
+
+.tug-character[data-rope-state-self="pushed"] img {
+  animation: tug-pushed-self 520ms ease-in-out infinite;
+}
+
+.tug-character[data-rope-state-other="pushed"] img {
+  animation: tug-pushed-other 520ms ease-in-out infinite;
+}
+
+.tug-character[data-rope-state-self="struggling"] img {
+  animation: tug-struggling-self 440ms ease-in-out infinite;
+}
+
+.tug-character[data-rope-state-other="struggling"] img {
+  animation: tug-struggling-other 360ms ease-in-out infinite;
+}
+
+.tug-character[data-rope-state-self="danger"] img {
+  animation: tug-danger-self 420ms ease-in-out infinite;
+}
+
+.tug-character[data-rope-state-other="danger"] img {
+  animation: tug-danger-other 360ms ease-in-out infinite;
+}
+
+.tug-character[data-rope-state-self="critical"] img {
+  animation: tug-critical-self 320ms ease-in-out infinite;
+  filter: drop-shadow(0 7px 5px rgba(56, 35, 18, 0.24));
+}
+
+.tug-character[data-rope-state-other="critical"] img {
+  animation: tug-critical-other 280ms ease-in-out infinite;
+  filter: drop-shadow(0 7px 5px rgba(56, 35, 18, 0.24)) drop-shadow(0 0 8px rgba(255, 74, 74, 0.32));
+}
+
+@keyframes tug-pushed-self {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-4px) rotate(-1deg); }
+}
+
+@keyframes tug-pushed-other {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(3px) rotate(1deg); }
+}
+
+@keyframes tug-struggling-self {
+  0%, 100% { transform: rotate(-1deg) translateY(0); }
+  50% { transform: rotate(1deg) translateY(-2px); }
+}
+
+@keyframes tug-struggling-other {
+  0%, 100% { transform: rotate(-2deg) translateX(-2px); }
+  50% { transform: rotate(2deg) translateX(2px); }
+}
+
+@keyframes tug-danger-self {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  50% { transform: translateY(-3px) scaleY(1.03); }
+}
+
+@keyframes tug-danger-other {
+  0%, 100% { transform: translateY(2px) scaleY(0.92); }
+  50% { transform: translateY(5px) scaleY(0.88); }
+}
+
+@keyframes tug-critical-self {
+  0%, 100% { transform: translateY(-2px) rotate(-1deg) scaleY(1.04); }
+  50% { transform: translateY(1px) rotate(1deg) scaleY(0.98); }
+}
+
+@keyframes tug-critical-other {
+  0%, 100% { transform: translateY(5px) rotate(-3deg) scaleY(0.88); }
+  50% { transform: translateY(9px) rotate(3deg) scaleY(0.84); }
+}
+
+@keyframes tug-critical-vignette {
+  from { opacity: 0.72; }
+  to { opacity: 1; }
 }
 
 .rhythm-ring-container {
@@ -377,7 +507,7 @@ h2 {
   font-weight: 900;
   letter-spacing: 0.04em;
   transform: translateX(-50%);
-  z-index: 3;
+  z-index: 5;
   opacity: 0;
   text-shadow: 0 4px 12px rgba(47, 33, 24, 0.35);
   pointer-events: none;

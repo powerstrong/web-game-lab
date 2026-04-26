@@ -70,7 +70,7 @@ const RHYTHM_CONFIG = {
 };
 
 const RHYTHM_CONFIG_CLUTCH = {
-  ringIntervalMs: 700,
+  ringIntervalMs: 820,        // ring lifetime 790ms (550+240)보다 약간 길게
   ringShrinkDurationMs: 550,
   perfectWindowMs: 110,
   goodWindowMs: 240,
@@ -370,6 +370,7 @@ type GameState = {
   stats: Record<string, PlayerStats>;
   winnerId?: string | null;
   endReason?: 'timeout' | 'ko' | 'abandoned';
+  phaseStage?: 1 | 2;            // Phase D — 1=일반, 2=클러치(라운드 시작 후 20초~)
 };
 
 type Player = {
@@ -742,7 +743,55 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 - RTT 보정 (`clientTapAt` + ping/pong 기반 clock sync) 미구현 — 후속.
 - Cloudflare Alarms 전환 미구현 — 후속.
 
-### Phase D — 줄 시각화(tension/wobble/stretch) + 5단계 상태 모션 + 페이즈 2 연출 (예정)
+### Phase D — 줄 시각화(tension/wobble/stretch) + 5단계 상태 모션 + 페이즈 2 연출 ✅ 완료
+
+**구현 산출물**:
+
+- **`worker/src/room.js` (페이즈 2 클러치)**:
+  - `TUG_RHYTHM_CONFIG_PHASE1` (1단계, 정상값) / `TUG_RHYTHM_CONFIG_PHASE2` (2단계 클러치, 단축값) 분리
+  - `TUG_PHASE_CLUTCH_START_MS = 20000` (라운드 시작 후 20초)
+  - `getTugRhythmConfig(game)` / `getTugPhaseStage(game)` — 동적 config/stage
+  - `_spawnTugRing(now, cfg)` cfg 매개변수 + `_handleTugWarTap`에서도 동적 cfg
+  - `_tickTugWar()` 1→2 stage 전환 감지 시 STATE_SYNC
+  - STATE_SYNC payload에 `phaseStage: 1 | 2` 추가
+
+- **`prototypes/mallang-tug-war/game.js` (Phase D Part 1: 줄 시각화 + 5단계 모션)**:
+  - `ROPE_VISUAL_CONFIG` (perfectPair window 200ms, tension boost 0.3, decay 0.96, wobble 400ms duration / 0.04 freq)
+  - `ropeVisual` 객체 — pos/tension/wobble/stretch + sample 타이밍 추적
+  - `classifyRopeState(ropePos)` — SPEC 임계 0.20/0.45/0.70/0.90 (balanced/pushed/struggling/danger/critical)
+  - `recordPerfectPull(playerId, ropeDelta)` — 양쪽 200ms 내 perfect 쌍 발생 시 tension +0.3
+  - `updateRopeVisualState(now)` — 매 프레임 tension decay, wobble 사인파, stretch
+  - `setCharacterMotionState` / `applyRopeMotionState` — `data-rope-state-self/other`로 자기/상대 진영 모션 분리
+  - `handleTapResult`에서 perfect 시 `recordPerfectPull` 호출
+  - `renderRope`에서 줄 마커/`.tug-rope-body`에 transform/filter/box-shadow로 visual 적용
+
+- **`prototypes/mallang-tug-war/game.js` (Phase D Part 2: 페이즈 2 클러치)**:
+  - `TUG_RHYTHM_CONFIG_PHASE1/PHASE2` 분리 (서버와 동일)
+  - `state.phaseStage` (default 1)
+  - `applyStateSync`에서 `serverState.phaseStage` 미러 + `.arena.is-clutch` 클래스 토글
+  - `predictJudgement(ring, tapNow)`이 `getRhythmConfigForStage(state.phaseStage)`로 동적 perfect/good window 사용
+
+- **`prototypes/mallang-tug-war/index.html`**:
+  - `.tug-rope` 안에 `.tug-rope-body` div 추가 (줄 본체에 stretch/wobble 적용)
+
+- **`prototypes/mallang-tug-war/style.css`**:
+  - `.arena::after` 위기 비네팅 (`data-rope-state="critical"` 시 활성)
+  - `.tug-rope-body` 별도 줄 본체 + transform/filter 보간
+  - `.tug-character[data-rope-state-self/other="..."]` 5단계 keyframe 애니메이션 (pushed/struggling/danger/critical, self/other 변형)
+  - `.arena.is-clutch` 페이즈 2 시각: 어두운 보라/초록 그라디언트 배경, `.arena.is-clutch::before` 양 끝 번개 비네팅 + `tug-clutch-flash` (밝기 진동) + `tug-clutch-bolts` (스텝 alpha)
+
+**디자인 선택**:
+- ringIntervalMs를 페이즈 1: 1000ms, 페이즈 2: 820ms로 — ring lifetime보다 약간 길게 잡아 단일 currentRing 정책에서 등간격 보장.
+- 페이즈 2 룰 변화는 SPEC 원칙대로 약하게 (window 단축 10ms+40ms). 압박감은 배경/번개로 처리.
+- 클라 5단계 모션은 `data-rope-state-self/other` 분리로 자기/상대 캐릭터에 다른 keyframe 적용 — SPEC line 480~488 우세/밀림 분기 구현.
+- `recordPerfectPull`에서 wobble seed 갱신 + paired tension boost — 양쪽이 동시 잘 칠수록 줄이 더 팽팽해 보이는 효과 (SPEC line 145~157 의도).
+
+**Phase D에서 미해결로 남긴 이슈 (Phase E 시 처리)**:
+- 아이템 2종 (솜사탕폭탄/얼음별사탕) — 미구현
+- KO 시퀀스 1.5~2초 7단계 연출 — 현재는 즉시 결과화면 전환
+- 결과 화면 명장면 회상 — 현재는 단순 승/패 메시지
+- 8종 의성어 사운드 — 미구현
+- RTT 보정 / Cloudflare Alarms 전환 — 후속 (Phase B/C에서 명시)
 
 ### Phase E — 아이템 2종 + KO 시퀀스 + 결과 화면 명장면 회상 + 사운드 8종 (예정)
 
@@ -812,6 +861,14 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 ---
 
 ## 변경 이력
+
+### v0.9 (Phase D 완료)
+
+**Phase D Part 1 (줄 시각화 + 5단계 모션)**: `RopeVisualState` (tension/wobble/stretch) 클라 전용 시각 레이어 도입. 매 프레임 ropePos sample 기반으로 tension decay (0.96^frame), wobble 사인파(0.04 freq, 400ms duration), stretch (|ropePos|+pos delta). perfect 쌍 200ms 내 발생 시 tension +0.3 부스트. `classifyRopeState` 5단계 (balanced/pushed/struggling/danger/critical) 매 프레임 분류 + `data-rope-state-self/other` 속성으로 자기/상대 진영 모션 분리.
+
+**Phase D Part 2 (페이즈 2 클러치)**: 서버 `TUG_RHYTHM_CONFIG_PHASE1/PHASE2` 분리, `getTugPhaseStage()` 동적 stage, STATE_SYNC에 `phaseStage: 1|2` 추가. 클라도 동일한 phase별 RHYTHM_CONFIG를 가져 `predictJudgement`이 phase별 동적 window 사용. `.arena.is-clutch` CSS — 어두운 보라/초록 배경 + 양 끝 번개 비네팅 + 밝기 깜빡임 애니메이션. 룰 변화는 약하게(window 단축 10ms+40ms), 압박감은 시각으로.
+
+**`RHYTHM_CONFIG_CLUTCH.ringIntervalMs` 700→820**: ring lifetime(550+240=790ms) > 기존 700ms 정책 충돌 해결. SPEC line 73 갱신.
 
 ### v0.8 (Phase C codex 리뷰 반영)
 

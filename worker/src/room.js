@@ -92,22 +92,48 @@ const TUG_PLAYER_COUNT = 2;
 const TUG_TICK_MS = 50;
 const TUG_KO_THRESHOLD = 1.0;
 
-// 리듬 링 + 풀 파워 — SPEC v0.8 라운드 구조 (페이즈 1 정상값).
-// Phase D에서 페이즈 2(클러치) 값으로 동적 전환 예정.
-// ringIntervalMs는 ring lifetime(shrink 700 + good 280 = 980ms)보다 약간 길게 잡아
-// 단일 currentRing 정책에서 등간격이 깨지지 않도록 한다.
-const TUG_RHYTHM_CONFIG = {
+// 리듬 링 + 풀 파워 — SPEC v0.9 라운드 구조.
+// 페이즈 1: 정상값 / 페이즈 2 (클러치, 20초 이후): 단축값.
+// ringIntervalMs는 ring lifetime(shrink + goodWindow)보다 약간 길게 잡아
+// 단일 currentRing 정책에서 등간격이 깨지지 않도록 한다 (1단계 980→1000, 2단계 790→820).
+const TUG_RHYTHM_CONFIG_PHASE1 = {
   ringIntervalMs: 1000,
   ringShrinkDurationMs: 700,
   perfectWindowMs: 120,
   goodWindowMs: 280,
 };
 
+const TUG_RHYTHM_CONFIG_PHASE2 = {
+  ringIntervalMs: 820,
+  ringShrinkDurationMs: 550,
+  perfectWindowMs: 110,
+  goodWindowMs: 240,
+};
+
+// 후방 호환 — 기존 TUG_RHYTHM_CONFIG 참조는 phase 1 값을 가리키도록.
+const TUG_RHYTHM_CONFIG = TUG_RHYTHM_CONFIG_PHASE1;
+
+// 페이즈 2 진입 시각 (라운드 시작 후 경과 시간) — SPEC line 63.
+const TUG_PHASE_CLUTCH_START_MS = 20000;
+
 const TUG_PULL_POWER = {
   perfect: 0.040,
   good: 0.018,
   miss: -0.005,
 };
+
+function getTugRhythmConfig(game) {
+  if (!game || !game.startedAt) return TUG_RHYTHM_CONFIG_PHASE1;
+  const elapsed = Date.now() - game.startedAt;
+  return elapsed >= TUG_PHASE_CLUTCH_START_MS
+    ? TUG_RHYTHM_CONFIG_PHASE2
+    : TUG_RHYTHM_CONFIG_PHASE1;
+}
+
+function getTugPhaseStage(game) {
+  if (!game || !game.startedAt) return 1;
+  return (Date.now() - game.startedAt) >= TUG_PHASE_CLUTCH_START_MS ? 2 : 1;
+}
 
 function sanitizeTugCharacterId(characterId, fallback = TUG_DEFAULT_CHARACTER) {
   return TUG_CHARACTERS.includes(characterId) ? characterId : fallback;
@@ -1021,6 +1047,7 @@ export class GameRoom {
       stats: Object.fromEntries(
         Object.entries(game.stats).map(([id, s]) => [id, { ...s }]),
       ),
+      phaseStage: getTugPhaseStage(game),
       serverTimeMs: Date.now(),
     };
   }
@@ -1154,6 +1181,13 @@ export class GameRoom {
     const now = Date.now();
     let dirty = false;
 
+    // 페이즈 1 → 페이즈 2 전환 감지. 직전 stage와 다르면 STATE_SYNC.
+    const stage = getTugPhaseStage(game);
+    if (game.lastPhaseStage !== stage) {
+      game.lastPhaseStage = stage;
+      dirty = true;
+    }
+
     // 활성 ring 만료 처리
     if (game.currentRing && now >= game.currentRing.expiresAt) {
       // 양 플레이어 중 응답 안 한 사람은 자동 miss로 기록.
@@ -1168,24 +1202,25 @@ export class GameRoom {
       dirty = true;
     }
 
-    // 새 ring 스폰
+    // 새 ring 스폰 — 페이즈에 따라 config 동적 선택
     if (!game.currentRing && now >= game.nextRingSpawnAtMs) {
-      this._spawnTugRing(now);
+      const cfg = getTugRhythmConfig(game);
+      this._spawnTugRing(now, cfg);
       // 다음 스폰 시각은 이번 spawnedAt + ringIntervalMs (등간격 유지)
-      game.nextRingSpawnAtMs = game.currentRing.spawnedAt + TUG_RHYTHM_CONFIG.ringIntervalMs;
+      game.nextRingSpawnAtMs = game.currentRing.spawnedAt + cfg.ringIntervalMs;
       dirty = true;
     }
 
     if (dirty) this._broadcastTugWarStateSync();
   }
 
-  _spawnTugRing(now) {
+  _spawnTugRing(now, cfg = TUG_RHYTHM_CONFIG_PHASE1) {
     const game = this.tugWarGame;
     if (!game) return;
     const id = `ring-${game.nextRingId++}`;
     const spawnedAt = now;
-    const centerAt = spawnedAt + TUG_RHYTHM_CONFIG.ringShrinkDurationMs;
-    const expiresAt = centerAt + TUG_RHYTHM_CONFIG.goodWindowMs;
+    const centerAt = spawnedAt + cfg.ringShrinkDurationMs;
+    const expiresAt = centerAt + cfg.goodWindowMs;
     game.currentRing = {
       id,
       spawnedAt,
@@ -1284,11 +1319,13 @@ export class GameRoom {
     if (ring.resolvedBy[player.id]) return; // 이중 판정 방지
 
     // 서버 도착 시각으로 판정 (RTT 보정은 후속 — 현재는 단순화).
+    // 페이즈 2에서는 perfect/good window가 단축됨.
+    const cfg = getTugRhythmConfig(game);
     const now = Date.now();
     const delta = Math.abs(now - ring.centerAt);
     let judgement;
-    if (delta <= TUG_RHYTHM_CONFIG.perfectWindowMs) judgement = 'perfect';
-    else if (delta <= TUG_RHYTHM_CONFIG.goodWindowMs) judgement = 'good';
+    if (delta <= cfg.perfectWindowMs) judgement = 'perfect';
+    else if (delta <= cfg.goodWindowMs) judgement = 'good';
     else judgement = 'miss';
 
     ring.resolvedBy[player.id] = judgement;
