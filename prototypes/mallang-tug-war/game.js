@@ -765,16 +765,12 @@ function renderItems(now) {
       el.textContent = TUG_ITEM_VISUAL[item.itemType]?.icon || '✨';
       arena.appendChild(el);
     }
-    // x: ring center 기준 ropePosAtSpawn에서 시작했지만 줄이 움직이면 박스도 함께 — 현재 ropePos에 맞춰 평행 이동.
-    // SPEC: "줄이 움직이면 박스도 같이 움직임 (줄 위에 얹혀있는 것)"
-    const trackOffsetPx = item.ropePosAtSpawn * arenaWidth * 0.32 + (ropeOffsetPx - item.ropePosAtSpawn * arenaWidth * 0.32);
-    // 단순화: 현재 ropePos를 따라가도록.
+    // x: 줄이 움직이면 박스도 같이 — 현재 ropePos에 맞춰 평행 이동 (SPEC line 237).
     const x = arenaWidth / 2 + ropeOffsetPx;
     // y: 0 (arena 상단) → 줄 라인(48% top) 까지 수직 낙하.
     const ropeY = arenaHeight * 0.48;
     const y = -10 + (ropeY + 10) * (item.fallProgress || 0);
     el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
-    void trackOffsetPx;
   }
 
   // 사라진 박스 제거.

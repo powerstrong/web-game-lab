@@ -313,10 +313,20 @@ h2 {
   100% { transform: translate(-50%, -150%) scale(1.1); opacity: 0; }
 }
 
-.arena.is-ice-tinted::after {
-  /* critical 비네팅과 별개의 청록 색상 — 같은 ::after를 공유하지 않게 hue를 분리. */
+/* 얼음별사탕 청록 틴트 — critical 비네팅(::after)과 충돌 회피를 위해 별도 overlay div를 사용.
+   .arena.is-ice-tinted 시 자식 .tug-ice-tint를 띄운다. */
+.tug-ice-tint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
   background:
-    radial-gradient(circle at center, rgba(110, 207, 255, 0) 30%, rgba(110, 207, 255, 0.35) 80%, rgba(40, 100, 145, 0.55) 100%);
+    radial-gradient(circle at center, rgba(110, 207, 255, 0) 30%, rgba(110, 207, 255, 0.35) 80%, rgba(40, 100, 145, 0.45) 100%);
+  transition: opacity 180ms ease-out;
+  z-index: 4;
+}
+
+.arena.is-ice-tinted .tug-ice-tint {
   opacity: 1;
 }
 

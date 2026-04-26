@@ -903,6 +903,14 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 
 ## 변경 이력
 
+### v0.12 (Phase E-1 gemini 리뷰 반영)
+
+**Critical — CSS pseudo 충돌**: `.arena.is-ice-tinted::after`와 `.arena[data-rope-state="critical"]::after`가 같은 `::after`를 공유해 critical과 ice tint 동시 활성 시 충돌. `.tug-ice-tint` 별도 div + arena 자식으로 이동, `.arena.is-ice-tinted .tug-ice-tint` opacity 토글로 변경. critical ::after는 그대로 유지 → 두 비네팅이 독립 z-layer로 공존.
+
+**Minor — 미사용 변수 제거**: `renderItems`의 `trackOffsetPx` (void 처리됨) 제거.
+
+**Minor — Ice Star miss 동작 명문화**: 의도적 동작 — miss는 ropePos 영향 없음 + iceStarPending 유지(소비 안 함). 다음 good/perfect 풀까지 보존. 플레이어가 의도하지 않은 헛스윙으로 ice star가 풀리지 않게 함. SPEC line 224 `affectedPulls: 1` "다음 1회 풀에만"의 "풀"은 ropePos에 영향을 주는 풀(perfect/good)을 의미.
+
 ### v0.11 (Phase E-1 완료 — 아이템 시스템)
 
 **서버**: `TUG_ITEM_CONFIG` (4000±1500ms 스폰 / 2200ms 낙하), `TUG_ITEM_DEFS` (`cottoncandy_bomb` 70%/+0.10, `ice_star` 30%/0.75 multiplier 비-perfect 약화), `pickTugItemType()` 가중치 랜덤. `_tickTugItems`가 fallProgress 갱신 + 자동 grab 처리 (ropePos 부호 기반 우세 진영). `_handleTugWarTap`에 `iceStarPending` 소비 (perfect bypass + pending 유지). STATE_SYNC payload에 `items` 추가.
