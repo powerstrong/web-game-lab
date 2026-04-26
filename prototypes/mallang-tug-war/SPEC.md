@@ -63,7 +63,7 @@ const ROUND_DURATION_MS = 30000;
 const PHASE_CLUTCH_START_MS = 20000;
 
 const RHYTHM_CONFIG = {
-  ringIntervalMs: 900,        // 다음 리듬 링 등장 간격
+  ringIntervalMs: 1000,       // 다음 리듬 링 등장 간격 (ring lifetime 980ms보다 약간 길게)
   ringShrinkDurationMs: 700,  // 링이 줄어드는 시간
   perfectWindowMs: 120,       // 퍼펙트 판정 창
   goodWindowMs: 280,          // 굿 판정 창
@@ -325,8 +325,8 @@ Cloudflare Durable Object가 authoritative.
 4. `clientTapAt`을 서버 기준 시각으로 보정 (RTT 절반 차감)
 5. 보정 시각으로 ring center 시각과의 차이 → 판정 (perfect / good / miss)
 6. 판정에 따라 `ropePos` 업데이트
-7. `|ropePos| >= 1.0` 체크 → KO면 `TUG_GAME_END`
-8. `TUG_TAP_RESULT` 브로드캐스트
+7. `TUG_TAP_RESULT` 브로드캐스트 (클라이언트가 final ropePos를 먼저 받게)
+8. `|ropePos| >= 1.0` 체크 → KO면 `TUG_GAME_END`
 
 ### 서버 TUG_ITEM_GRAB 검증 순서
 
@@ -812,6 +812,22 @@ Codex 산출물 검토 중 발견한 critical 이슈를 직접 수정.
 ---
 
 ## 변경 이력
+
+### v0.8 (Phase C codex 리뷰 반영)
+
+**Major 1 — 자동 miss stats 적용**: `_tickTugWar`의 ring 만료 처리에서 `_applyTugTapStats(playerId, 'miss', 0)` 호출 추가. ropePos 영향 없이 misses/perfectStreak 끊김만 갱신.
+
+**Major 2 — `ringIntervalMs` 900→1000ms**: ring lifetime(shrink 700 + good 280 = 980ms) > 기존 ringInterval 900ms이라 단일 currentRing 정책에서 등간격이 깨졌음. 1000ms로 늘려 SPEC line 66 RHYTHM_CONFIG와 실제 코드 동기화. 클러치(페이즈 2) 700ms는 Phase D에서 ring 큐 도입으로 처리 예정.
+
+**Major 3 — `ringId` 엄격 비교**: `_handleTugWarTap`에서 `if (msg.ringId && msg.ringId !== ring.id) return;` → `if (msg.ringId !== ring.id) return;`. 활성 ring 있을 때 ringId 누락/다름은 모두 무시. ring 없을 때 탭(ringId=null)은 별도 분기에서 처리.
+
+**Minor 1 — 검증 순서 갱신**: SPEC 서버 TUG_TAP 검증 순서 7/8을 `TAP_RESULT 브로드캐스트 → KO 체크`로 변경. 클라가 final ropePos 보정을 먼저 받는 게 자연스럽고 코드 순서와 일치.
+
+**Minor 2 — STATE_SYNC stats 포함**: `_serializeTugWarState()`에 `stats: { [playerId]: PlayerStats }` 추가. HUD/관전자가 진행 중 통계를 볼 수 있게.
+
+**Minor 4 — popup 중복 깜빡임 회피**: 클라 `pendingPredictions: Map<clientSeq, predicted>` 도입. `handleTapResult`에서 동일 판정이면 popup 재시작 생략. ropePos 정정은 항상 적용.
+
+**Minor 3 (RTT 보정) 이연**: 의도적. 손맛 QA에서 가장 먼저 체감될 리스크로 SPEC에 명시.
 
 ### v0.7 (Phase C 완료)
 

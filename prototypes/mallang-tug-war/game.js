@@ -117,10 +117,14 @@ function sendRaw(msg) {
 }
 
 function sendSeq(msg) {
-  if (ws?.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ ...msg, clientSeq: ++clientSeq }));
-  }
+  if (ws?.readyState !== WebSocket.OPEN) return null;
+  const seq = ++clientSeq;
+  ws.send(JSON.stringify({ ...msg, clientSeq: seq }));
+  return seq;
 }
+
+// clientSeq → 예측 판정. TAP_RESULT 도착 시 동일 판정이면 popup 재시작 생략.
+const pendingPredictions = new Map();
 
 function handleMessage(msg) {
   switch (msg.type) {
@@ -153,13 +157,16 @@ function handleTapResult(msg) {
     state.ropePos = msg.newRopePos;
     renderRope();
   }
-  // 상대 입력 표시 (자기 자신은 즉시 예측에서 이미 표시됨)
-  if (msg.playerId !== myPlayerId) {
-    showJudgement(msg.judgement, msg.playerId);
-  } else {
-    // 내 판정도 한 번 더 권위로 갱신 (예측 불일치 시 보정)
-    showJudgement(msg.judgement, msg.playerId);
+  // 내 탭에 대한 응답이면 pending 예측을 꺼내서 동일하면 popup 재시작 생략 (Minor 4 회피)
+  if (msg.playerId === myPlayerId && msg.clientSeq != null) {
+    const predicted = pendingPredictions.get(msg.clientSeq);
+    pendingPredictions.delete(msg.clientSeq);
+    if (predicted === msg.judgement) {
+      // 예측 일치 — UI 재시작 생략. ropePos 보정만 (위에서 이미 처리)
+      return;
+    }
   }
+  showJudgement(msg.judgement, msg.playerId);
 }
 
 // === STATE_SYNC 적용 + 화면 전환 ===
@@ -429,8 +436,9 @@ function handleTapInput(event) {
   const serverNow = clientNow + state.serverClockOffsetMs;
 
   if (!ring) {
-    // 활성 ring 없을 때 탭 — 서버에 전달, 표시도 miss
-    sendSeq({ type: 'TUG_TAP', ringId: null, clientTapAt: clientNow });
+    // 활성 ring 없을 때 탭 — 서버에 전달, 즉시 miss 표시 (서버도 miss로 응답)
+    const seq = sendSeq({ type: 'TUG_TAP', ringId: null, clientTapAt: clientNow });
+    if (seq != null) pendingPredictions.set(seq, 'miss');
     showJudgement('miss', myPlayerId);
     return;
   }
@@ -450,7 +458,8 @@ function handleTapInput(event) {
     renderRope();
   }
 
-  sendSeq({ type: 'TUG_TAP', ringId: ring.id, clientTapAt: clientNow });
+  const seq = sendSeq({ type: 'TUG_TAP', ringId: ring.id, clientTapAt: clientNow });
+  if (seq != null) pendingPredictions.set(seq, predicted);
 }
 
 function paintCharacterSlot(imgEl, labelEl, youEl, player) {

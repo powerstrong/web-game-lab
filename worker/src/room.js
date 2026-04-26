@@ -92,10 +92,12 @@ const TUG_PLAYER_COUNT = 2;
 const TUG_TICK_MS = 50;
 const TUG_KO_THRESHOLD = 1.0;
 
-// 리듬 링 + 풀 파워 — SPEC v0.6 라운드 구조 (페이즈 1 정상값).
+// 리듬 링 + 풀 파워 — SPEC v0.8 라운드 구조 (페이즈 1 정상값).
 // Phase D에서 페이즈 2(클러치) 값으로 동적 전환 예정.
+// ringIntervalMs는 ring lifetime(shrink 700 + good 280 = 980ms)보다 약간 길게 잡아
+// 단일 currentRing 정책에서 등간격이 깨지지 않도록 한다.
 const TUG_RHYTHM_CONFIG = {
-  ringIntervalMs: 900,
+  ringIntervalMs: 1000,
   ringShrinkDurationMs: 700,
   perfectWindowMs: 120,
   goodWindowMs: 280,
@@ -1016,6 +1018,9 @@ export class GameRoom {
       winnerId: game.winnerId,
       endReason: game.endReason,
       currentRing: game.currentRing ? this._serializeTugRing(game.currentRing) : null,
+      stats: Object.fromEntries(
+        Object.entries(game.stats).map(([id, s]) => [id, { ...s }]),
+      ),
       serverTimeMs: Date.now(),
     };
   }
@@ -1151,11 +1156,12 @@ export class GameRoom {
 
     // 활성 ring 만료 처리
     if (game.currentRing && now >= game.currentRing.expiresAt) {
-      // 양 플레이어 중 응답 안 한 사람은 자동 miss로 기록 (penalty 없는 단순 통계용 — ropePos 변동 없음)
+      // 양 플레이어 중 응답 안 한 사람은 자동 miss로 기록.
+      // ropePos는 변동 없음 (의도적 공백 — SPEC line 818) 이지만 stats(misses, perfectStreak 끊김)는 갱신.
       for (const player of Object.values(game.players)) {
         if (!game.currentRing.resolvedBy[player.id]) {
           game.currentRing.resolvedBy[player.id] = 'miss';
-          // 통계만 업데이트 (자동 miss는 ropePos 영향 없음 — 의도적 공백)
+          this._applyTugTapStats(player.id, 'miss', 0);
         }
       }
       game.currentRing = null;
@@ -1272,8 +1278,9 @@ export class GameRoom {
       return;
     }
 
-    // ringId 검증 — 클라가 다음 ring을 alias 보낸 경우 거부
-    if (msg.ringId && msg.ringId !== ring.id) return;
+    // ringId 엄격 검증 — 누락/이전 ring/다음 ring을 alias로 보낸 경우 모두 거부.
+    // 클라는 ring null 시점에 보낸 탭은 ringId=null로 보내며, 이 분기는 위에서 이미 처리됨.
+    if (msg.ringId !== ring.id) return;
     if (ring.resolvedBy[player.id]) return; // 이중 판정 방지
 
     // 서버 도착 시각으로 판정 (RTT 보정은 후속 — 현재는 단순화).
