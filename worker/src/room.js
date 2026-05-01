@@ -1670,7 +1670,12 @@ export class GameRoom {
 
   _initQuizGame(roster) {
     if (this.quizGame) return;
-    const shuffled = [...QUIZ_BANK].sort(() => Math.random() - 0.5);
+    const arr = [...QUIZ_BANK];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    const shuffled = arr;
     this.quizGame = {
       players: roster.map(p => ({
         id: p.id,
@@ -1738,6 +1743,7 @@ export class GameRoom {
       this._broadcastGame({ type: 'QUIZ_COUNTDOWN', seconds }, 'mallang-quiz-battle');
       await new Promise(r => setTimeout(r, 1000));
     }
+    if (!this.quizGame) return;
     await this._advanceQuizQuestion();
   }
 
@@ -1793,6 +1799,7 @@ export class GameRoom {
 
   async _revealQuizAnswer() {
     if (!this.quizGame || this.quizGame.phase !== 'question') return;
+    if (this.quizGame.timer) { clearTimeout(this.quizGame.timer); this.quizGame.timer = null; }
     this.quizGame.phase = 'reveal';
 
     const q = this.quizGame.questions[this.quizGame.currentIndex];
@@ -1813,6 +1820,7 @@ export class GameRoom {
     }, 'mallang-quiz-battle');
 
     await new Promise(r => setTimeout(r, QUIZ_REVEAL_MS));
+    if (!this.quizGame) return;
     await this._advanceQuizQuestion();
   }
 
@@ -2035,6 +2043,7 @@ export class GameRoom {
     this._stopJumpLoop();
     this.tugWarGame = null;
     this._stopTugWarLoop();
+    if (this.quizGame?.timer) clearTimeout(this.quizGame.timer);
     this.quizGame = null;
     await this.state.storage.put('phase', 'countdown');
     for (const seconds of [3, 2, 1]) {
@@ -2071,6 +2080,7 @@ export class GameRoom {
     this._stopJumpLoop();
     this.tugWarGame = null;
     this._stopTugWarLoop();
+    if (this.quizGame?.timer) clearTimeout(this.quizGame.timer);
     this.quizGame = null;
     // Reset player votes
     for (const { ws, player } of this._getLobbySessions()) {
@@ -2117,6 +2127,21 @@ export class GameRoom {
       if (quizPlayer) {
         quizPlayer.connected = false;
         this._broadcastGame({ type: 'QUIZ_PLAYER_UPDATE', players: this.quizGame.players }, 'mallang-quiz-battle');
+        const anyConnected = this.quizGame.players.some(p => p.connected);
+        if (!anyConnected) {
+          if (this.quizGame.timer) { clearTimeout(this.quizGame.timer); this.quizGame.timer = null; }
+          this.quizGame = null;
+          return;
+        }
+        // If in question phase, check whether remaining connected players all submitted
+        if (this.quizGame?.phase === 'question') {
+          const connected = this.quizGame.players.filter(p => p.connected);
+          const submittedCount = Object.keys(this.quizGame.submissions).length;
+          if (submittedCount >= connected.length && connected.length > 0) {
+            if (this.quizGame.timer) { clearTimeout(this.quizGame.timer); this.quizGame.timer = null; }
+            this._revealQuizAnswer().catch(() => {});
+          }
+        }
       }
       return;
     }
