@@ -1,3 +1,5 @@
+import { QUIZ_BANK } from './quiz_bank.js';
+
 const COLORS = [
   '#ef4444', '#3b82f6', '#22c55e', '#f59e0b',
   '#a855f7', '#ec4899', '#14b8a6', '#f97316',
@@ -7,7 +9,14 @@ const COLORS = [
 const GAME_PATHS = {
   'jump-climber': '/prototypes/jump-climber/index.html',
   'mallang-tug-war': '/prototypes/mallang-tug-war/index.html',
+  'mallang-quiz-battle': '/prototypes/mallang-quiz-battle/index.html',
 };
+
+const QUIZ_VALID_CHARS = ['mochi-rabbit', 'pudding-hamster', 'peach-chick', 'latte-puppy', 'mint-kitten'];
+const QUIZ_QUESTION_COUNT = 10;
+const QUIZ_TIME_LIMIT_MS = 10000;
+const QUIZ_REVEAL_MS = 2500;
+const QUIZ_POINTS_PER_CORRECT = 100;
 
 function randomHex(len) {
   const bytes = new Uint8Array(len / 2);
@@ -265,6 +274,7 @@ export class GameRoom {
     this.jumpLoop = null;
     this.tugWarGame = null;
     this.tugWarLoop = null;
+    this.quizGame = null;
   }
 
   // Returns [{ws, player}] for all connected, registered players
@@ -931,6 +941,10 @@ export class GameRoom {
   }
 
   async _handleJoinGame(ws, msg) {
+    if (msg.gameId === 'mallang-quiz-battle') {
+      return await this._handleQuizJoinGame(ws, msg);
+    }
+
     if (msg.gameId === 'mallang-tug-war') {
       return await this._handleTugWarJoinGame(ws, msg);
     }
@@ -1652,6 +1666,174 @@ export class GameRoom {
     // TODO: Phase E에서 아이템 효과 적용
   }
 
+  // ── Quiz Battle ────────────────────────────────────────────────────────────
+
+  _initQuizGame(roster) {
+    if (this.quizGame) return;
+    const shuffled = [...QUIZ_BANK].sort(() => Math.random() - 0.5);
+    this.quizGame = {
+      players: roster.map(p => ({
+        id: p.id,
+        name: p.name,
+        colorIndex: p.colorIndex,
+        color: p.color,
+        characterId: 'mochi-rabbit',
+        score: 0,
+        ready: false,
+        connected: false,
+      })),
+      questions: shuffled.slice(0, QUIZ_QUESTION_COUNT),
+      currentIndex: -1,
+      phase: 'waiting',
+      submissions: {},
+      timer: null,
+    };
+  }
+
+  async _handleQuizJoinGame(ws, msg) {
+    const fullRoster = (await this.state.storage.get('gameRoster')) || [];
+    const rosterPlayer = fullRoster.find(p => p.id === msg.playerId);
+    if (!rosterPlayer) {
+      ws.send(JSON.stringify({ type: 'error', message: '방 플레이어 정보가 맞지 않습니다.' }));
+      return;
+    }
+
+    this._initQuizGame(fullRoster);
+
+    const quizPlayer = this.quizGame.players.find(p => p.id === msg.playerId);
+    if (quizPlayer) {
+      quizPlayer.connected = true;
+      if (QUIZ_VALID_CHARS.includes(msg.characterId)) quizPlayer.characterId = msg.characterId;
+    }
+
+    ws.serializeAttachment({ ...rosterPlayer, role: 'game', gameId: 'mallang-quiz-battle', isSpectator: false });
+    ws.send(JSON.stringify({ type: 'QUIZ_JOINED', players: this.quizGame.players, phase: this.quizGame.phase }));
+    this._broadcastGame({ type: 'QUIZ_PLAYER_UPDATE', players: this.quizGame.players }, 'mallang-quiz-battle');
+  }
+
+  async _handleQuizSelectCharacter(player, msg) {
+    if (!this.quizGame) return;
+    const characterId = QUIZ_VALID_CHARS.includes(msg.characterId) ? msg.characterId : 'mochi-rabbit';
+    const quizPlayer = this.quizGame.players.find(p => p.id === player.id);
+    if (!quizPlayer) return;
+    quizPlayer.characterId = characterId;
+    this._broadcastGame({ type: 'QUIZ_PLAYER_UPDATE', players: this.quizGame.players }, 'mallang-quiz-battle');
+  }
+
+  async _handleQuizReady(player, msg) {
+    if (!this.quizGame || this.quizGame.phase !== 'waiting') return;
+    const quizPlayer = this.quizGame.players.find(p => p.id === player.id);
+    if (!quizPlayer) return;
+    quizPlayer.ready = msg.ready !== false;
+    this._broadcastGame({ type: 'QUIZ_PLAYER_UPDATE', players: this.quizGame.players }, 'mallang-quiz-battle');
+
+    const connected = this.quizGame.players.filter(p => p.connected);
+    const allReady = connected.length >= 1 && connected.every(p => p.ready);
+    if (allReady) await this._startQuizCountdown();
+  }
+
+  async _startQuizCountdown() {
+    this.quizGame.phase = 'countdown';
+    for (const seconds of [3, 2, 1]) {
+      this._broadcastGame({ type: 'QUIZ_COUNTDOWN', seconds }, 'mallang-quiz-battle');
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    await this._advanceQuizQuestion();
+  }
+
+  async _advanceQuizQuestion() {
+    if (!this.quizGame) return;
+    this.quizGame.currentIndex += 1;
+    if (this.quizGame.currentIndex >= this.quizGame.questions.length) {
+      await this._finishQuizGame();
+      return;
+    }
+
+    const q = this.quizGame.questions[this.quizGame.currentIndex];
+    this.quizGame.phase = 'question';
+    this.quizGame.submissions = {};
+
+    this._broadcastGame({
+      type: 'QUIZ_QUESTION',
+      questionIndex: this.quizGame.currentIndex,
+      total: this.quizGame.questions.length,
+      question: q.question,
+      options: q.options,
+      timeLimit: QUIZ_TIME_LIMIT_MS / 1000,
+    }, 'mallang-quiz-battle');
+
+    this.quizGame.timer = setTimeout(() => {
+      this._revealQuizAnswer().catch(() => {});
+    }, QUIZ_TIME_LIMIT_MS);
+  }
+
+  async _handleQuizAnswer(player, msg) {
+    if (!this.quizGame || this.quizGame.phase !== 'question') return;
+    if (this.quizGame.submissions[player.id] !== undefined) return;
+    if (msg.questionIndex !== this.quizGame.currentIndex) return;
+
+    const answerIndex = typeof msg.answerIndex === 'number' ? msg.answerIndex : -1;
+    this.quizGame.submissions[player.id] = answerIndex;
+
+    const connected = this.quizGame.players.filter(p => p.connected);
+    const submittedCount = Object.keys(this.quizGame.submissions).length;
+
+    this._broadcastGame({
+      type: 'QUIZ_SUBMITTED',
+      playerId: player.id,
+      submittedCount,
+      totalCount: connected.length,
+    }, 'mallang-quiz-battle');
+
+    if (submittedCount >= connected.length) {
+      if (this.quizGame.timer) { clearTimeout(this.quizGame.timer); this.quizGame.timer = null; }
+      await this._revealQuizAnswer();
+    }
+  }
+
+  async _revealQuizAnswer() {
+    if (!this.quizGame || this.quizGame.phase !== 'question') return;
+    this.quizGame.phase = 'reveal';
+
+    const q = this.quizGame.questions[this.quizGame.currentIndex];
+    for (const [pid, answerIndex] of Object.entries(this.quizGame.submissions)) {
+      if (answerIndex === q.answer) {
+        const p = this.quizGame.players.find(p => p.id === pid);
+        if (p) p.score += QUIZ_POINTS_PER_CORRECT;
+      }
+    }
+
+    const scores = this.quizGame.players.map(p => ({ id: p.id, score: p.score }));
+    this._broadcastGame({
+      type: 'QUIZ_REVEAL',
+      questionIndex: this.quizGame.currentIndex,
+      correctIndex: q.answer,
+      explanation: q.explanation,
+      scores,
+    }, 'mallang-quiz-battle');
+
+    await new Promise(r => setTimeout(r, QUIZ_REVEAL_MS));
+    await this._advanceQuizQuestion();
+  }
+
+  async _finishQuizGame() {
+    if (!this.quizGame) return;
+    this.quizGame.phase = 'finished';
+
+    const rankings = [...this.quizGame.players]
+      .sort((a, b) => b.score - a.score)
+      .map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, characterId: p.characterId, colorIndex: p.colorIndex, score: p.score }));
+
+    this._broadcastGame({ type: 'QUIZ_END', rankings }, 'mallang-quiz-battle');
+
+    const scores = {};
+    this.quizGame.players.forEach(p => {
+      scores[p.id] = { name: p.name, score: p.score, colorIndex: p.colorIndex };
+    });
+    await this.state.storage.put('scores', scores);
+    await this.state.storage.put('phase', 'results');
+  }
+
   _handlePlayerInput(player, msg) {
     if (!this.jumpGame || player.role !== 'game' || player.gameId !== 'jump-climber') return;
     if (player.isSpectator) return;
@@ -1708,6 +1890,15 @@ export class GameRoom {
         break;
       case 'TUG_ITEM_GRAB':
         if (player?.gameId === 'mallang-tug-war') this._handleTugWarItemGrab(player, msg);
+        break;
+      case 'QUIZ_SELECT_CHARACTER':
+        if (player?.gameId === 'mallang-quiz-battle') await this._handleQuizSelectCharacter(player, msg);
+        break;
+      case 'QUIZ_READY':
+        if (player?.gameId === 'mallang-quiz-battle') await this._handleQuizReady(player, msg);
+        break;
+      case 'QUIZ_ANSWER':
+        if (player?.gameId === 'mallang-quiz-battle') await this._handleQuizAnswer(player, msg);
         break;
       case 'submit_result': if (player) await this._handleSubmitResult(player, msg);      break;
       case 'rematch':       if (player) await this._handleRematch();                       break;
@@ -1844,6 +2035,7 @@ export class GameRoom {
     this._stopJumpLoop();
     this.tugWarGame = null;
     this._stopTugWarLoop();
+    this.quizGame = null;
     await this.state.storage.put('phase', 'countdown');
     for (const seconds of [3, 2, 1]) {
       this._broadcastAll({ type: 'countdown', seconds });
@@ -1879,6 +2071,7 @@ export class GameRoom {
     this._stopJumpLoop();
     this.tugWarGame = null;
     this._stopTugWarLoop();
+    this.quizGame = null;
     // Reset player votes
     for (const { ws, player } of this._getLobbySessions()) {
       ws.serializeAttachment({ ...player, gameVote: null, startVote: false });
@@ -1915,6 +2108,15 @@ export class GameRoom {
         await this._finishJumpGame();
       } else {
         this._broadcastJumpPatch();
+      }
+      return;
+    }
+
+    if (player.role === 'game' && player.gameId === 'mallang-quiz-battle' && this.quizGame) {
+      const quizPlayer = this.quizGame.players.find(p => p.id === player.id);
+      if (quizPlayer) {
+        quizPlayer.connected = false;
+        this._broadcastGame({ type: 'QUIZ_PLAYER_UPDATE', players: this.quizGame.players }, 'mallang-quiz-battle');
       }
       return;
     }
