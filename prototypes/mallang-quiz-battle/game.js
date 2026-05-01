@@ -29,6 +29,8 @@ let timerInterval = null;
 let chatVisible = false;
 let chatHideTimer = null;
 let answerHistory = {}; // { playerId: { questionIndex: true | false | null } }
+let reconnectCount = 0;
+let gameEnded = false;
 
 /* ── DOM 참조 ──────────────────────────────────────── */
 const setupScreen      = document.getElementById('setupScreen');
@@ -81,6 +83,7 @@ function connect() {
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
+    reconnectCount = 0;
     ws.send(JSON.stringify({
       type: 'join_game',
       gameId: 'mallang-quiz-battle',
@@ -95,7 +98,12 @@ function connect() {
     handleMessage(msg);
   };
 
-  ws.onclose = () => { setTimeout(connect, 2000); };
+  ws.onclose = (e) => {
+    if (gameEnded || e.code === 1000) return;
+    reconnectCount++;
+    if (reconnectCount > 5) return;
+    setTimeout(connect, Math.min(reconnectCount * 2000, 10000));
+  };
 }
 
 function sendIfOpen(obj) {
@@ -217,6 +225,7 @@ function onReveal(msg) {
 
 function onEnd(msg) {
   stopTimer();
+  gameEnded = true;
   const winner = msg.rankings[0];
 
   winnerChar.src = CHAR_IMAGES[winner.characterId] || '';

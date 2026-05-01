@@ -1695,6 +1695,7 @@ export class GameRoom {
       phase: 'waiting',
       submissions: {},
       timer: null,
+      questionStartedAt: null,
     };
   }
 
@@ -1717,6 +1718,21 @@ export class GameRoom {
     ws.serializeAttachment({ ...rosterPlayer, role: 'game', gameId: 'mallang-quiz-battle', isSpectator: false });
     ws.send(JSON.stringify({ type: 'QUIZ_JOINED', players: this.quizGame.players, phase: this.quizGame.phase }));
     this._broadcastGame({ type: 'QUIZ_PLAYER_UPDATE', players: this.quizGame.players }, 'mallang-quiz-battle');
+
+    // 재접속: 현재 진행 중인 문항 재전송
+    if (this.quizGame.phase === 'question') {
+      const q = this.quizGame.questions[this.quizGame.currentIndex];
+      const elapsed = this.quizGame.questionStartedAt ? Date.now() - this.quizGame.questionStartedAt : QUIZ_TIME_LIMIT_MS;
+      const remaining = Math.max(1, Math.ceil((QUIZ_TIME_LIMIT_MS - elapsed) / 1000));
+      ws.send(JSON.stringify({
+        type: 'QUIZ_QUESTION',
+        questionIndex: this.quizGame.currentIndex,
+        total: this.quizGame.questions.length,
+        question: q.question,
+        options: q.options,
+        timeLimit: remaining,
+      }));
+    }
   }
 
   async _handleQuizSelectCharacter(player, msg) {
@@ -1743,6 +1759,7 @@ export class GameRoom {
   async _startQuizCountdown() {
     this.quizGame.phase = 'countdown';
     for (const seconds of [3, 2, 1]) {
+      if (!this.quizGame) return;
       this._broadcastGame({ type: 'QUIZ_COUNTDOWN', seconds }, 'mallang-quiz-battle');
       await new Promise(r => setTimeout(r, 1000));
     }
@@ -1752,6 +1769,7 @@ export class GameRoom {
 
   async _advanceQuizQuestion() {
     if (!this.quizGame) return;
+    if (this.quizGame.phase !== 'reveal' && this.quizGame.phase !== 'countdown') return;
     this.quizGame.currentIndex += 1;
     if (this.quizGame.currentIndex >= this.quizGame.questions.length) {
       await this._finishQuizGame();
@@ -1761,6 +1779,7 @@ export class GameRoom {
     const q = this.quizGame.questions[this.quizGame.currentIndex];
     this.quizGame.phase = 'question';
     this.quizGame.submissions = {};
+    this.quizGame.questionStartedAt = Date.now();
 
     this._broadcastGame({
       type: 'QUIZ_QUESTION',
@@ -1782,6 +1801,7 @@ export class GameRoom {
     if (msg.questionIndex !== this.quizGame.currentIndex) return;
 
     const answerIndex = typeof msg.answerIndex === 'number' ? msg.answerIndex : -1;
+    if (answerIndex < 0 || answerIndex > 3) return;
     this.quizGame.submissions[player.id] = answerIndex;
 
     const connected = this.quizGame.players.filter(p => p.connected);
@@ -1819,6 +1839,7 @@ export class GameRoom {
       questionIndex: this.quizGame.currentIndex,
       correctIndex: q.answer,
       explanation: q.explanation,
+      submissions: { ...this.quizGame.submissions },
       scores,
     }, 'mallang-quiz-battle');
 
