@@ -3,7 +3,7 @@ const CHAR_IMAGES = {
   'mochi-rabbit':    '/prototypes/jump-climber/assets/토끼 메인 이미지.png',
   'pudding-hamster': '/prototypes/jump-climber/assets/햄스터 메인 이미지.png',
   'peach-chick':     '/prototypes/jump-climber/assets/병아리 메인 이미지.png',
-  'latte-puppy':     '/prototypes/jump-climber/assets/라떼 메인 이미지.png',
+  'latte-puppy':     '/prototypes/jump-climber/assets/라떼 강아지 메인이미지.png',
   'mint-kitten':     '/prototypes/jump-climber/assets/고양이 메인이미지.png',
 };
 
@@ -28,36 +28,38 @@ let myAnswer = null;
 let timerInterval = null;
 let chatVisible = false;
 let chatHideTimer = null;
-let answerHistory = {}; // { playerId: { questionIndex: true | false | null } }
+let answerHistory = {};
 let reconnectCount = 0;
 let gameEnded = false;
+let comboCount = 0;
+let wasFirstSubmit = false;
 
 /* ── DOM 참조 ──────────────────────────────────────── */
-const setupScreen      = document.getElementById('setupScreen');
-const gameScreen       = document.getElementById('gameScreen');
-const resultScreen     = document.getElementById('resultScreen');
-const readyBtn         = document.getElementById('readyBtn');
-const scoreBar         = document.getElementById('scoreBar');
-const questionProgress = document.getElementById('questionProgress');
-const timerDisplay     = document.getElementById('timerDisplay');
-const countdownOverlay = document.getElementById('countdownOverlay');
-const countdownNumber  = document.getElementById('countdownNumber');
-const questionText     = document.getElementById('questionText');
-const optionGrid       = document.getElementById('optionGrid');
-const revealPanel      = document.getElementById('revealPanel');
-const revealResult     = document.getElementById('revealResult');
+const setupScreen       = document.getElementById('setupScreen');
+const gameScreen        = document.getElementById('gameScreen');
+const resultScreen      = document.getElementById('resultScreen');
+const readyBtn          = document.getElementById('readyBtn');
+const scoreBar          = document.getElementById('scoreBar');
+const questionProgress  = document.getElementById('questionProgress');
+const timerDisplay      = document.getElementById('timerDisplay');
+const countdownOverlay  = document.getElementById('countdownOverlay');
+const countdownNumber   = document.getElementById('countdownNumber');
+const questionText      = document.getElementById('questionText');
+const optionGrid        = document.getElementById('optionGrid');
+const revealPanel       = document.getElementById('revealPanel');
+const revealResult      = document.getElementById('revealResult');
 const revealExplanation = document.getElementById('revealExplanation');
-const waitingPlayers   = document.getElementById('waitingPlayers');
-const rankingsList     = document.getElementById('rankingsList');
-const winnerChar       = document.getElementById('winnerChar');
-const winnerName       = document.getElementById('winnerName');
-const winnerScore      = document.getElementById('winnerScore');
-const chatOverlay      = document.getElementById('chatOverlay');
-const chatMessages     = document.getElementById('chatMessages');
-const chatToggle       = document.getElementById('chatToggle');
-const chatInputWrap    = document.getElementById('chatInputWrap');
-const chatInput        = document.getElementById('chatInput');
-const chatSend         = document.getElementById('chatSend');
+const waitingPlayers    = document.getElementById('waitingPlayers');
+const rankingsList      = document.getElementById('rankingsList');
+const winnerChar        = document.getElementById('winnerChar');
+const winnerName        = document.getElementById('winnerName');
+const winnerScore       = document.getElementById('winnerScore');
+const chatOverlay       = document.getElementById('chatOverlay');
+const chatMessages      = document.getElementById('chatMessages');
+const chatToggle        = document.getElementById('chatToggle');
+const chatInputWrap     = document.getElementById('chatInputWrap');
+const chatInput         = document.getElementById('chatInput');
+const chatSend          = document.getElementById('chatSend');
 
 /* ── 캐릭터 선택 ────────────────────────────────────── */
 document.querySelectorAll('.character-card').forEach(card => {
@@ -128,6 +130,8 @@ function handleMessage(msg) {
 function onJoined(msg) {
   players = msg.players || [];
   answerHistory = {};
+  comboCount = 0;
+  wasFirstSubmit = false;
   renderSetupPlayers();
   renderScoreBar();
 }
@@ -141,7 +145,13 @@ function onPlayerUpdate(msg) {
 function onCountdown(msg) {
   showScreen('game');
   countdownOverlay.classList.remove('is-hidden');
+
+  // 숫자마다 pop 애니메이션 재실행
+  countdownNumber.style.animation = 'none';
+  countdownNumber.offsetWidth; // force reflow
   countdownNumber.textContent = msg.seconds;
+  countdownNumber.style.animation = 'pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards';
+
   questionText.textContent = '';
   optionGrid.innerHTML = '';
   revealPanel.classList.add('is-hidden');
@@ -152,6 +162,7 @@ function onCountdown(msg) {
 function onQuestion(msg) {
   currentQuestion = msg;
   myAnswer = null;
+  wasFirstSubmit = false;
   submittedIds = new Set();
 
   countdownOverlay.classList.add('is-hidden');
@@ -160,7 +171,6 @@ function onQuestion(msg) {
   questionProgress.textContent = `Q ${msg.questionIndex + 1} / ${msg.total}`;
   questionText.textContent = msg.question;
 
-  // 보기 버튼 생성
   optionGrid.innerHTML = '';
   msg.options.forEach((opt, i) => {
     const btn = document.createElement('button');
@@ -169,14 +179,14 @@ function onQuestion(msg) {
     btn.innerHTML =
       `<span class="option-label">${OPTION_LABELS[i]}</span>` +
       `<span class="option-text">${escHtml(opt)}</span>`;
-    btn.addEventListener('click', () => submitAnswer(i));
+    btn.addEventListener('click', (e) => {
+      addRipple(btn, e);
+      submitAnswer(i);
+    });
     optionGrid.appendChild(btn);
   });
 
-  // 제출 완료 표시 초기화
   updateSubmittedIndicators();
-
-  // 클라이언트 표시용 타이머 시작
   startTimer(msg.timeLimit);
 }
 
@@ -188,13 +198,16 @@ function onSubmitted(msg) {
 function onReveal(msg) {
   stopTimer();
 
-  // 점수 업데이트
+  // 점수 변화량 계산 (업데이트 전)
+  const myBefore = players.find(p => p.id === playerId);
+  const prevScore = myBefore ? (myBefore.score || 0) : 0;
+
+  // 점수 + 답변 기록 업데이트
   players = players.map(p => {
     const entry = msg.scores.find(s => s.id === p.id);
     return entry ? { ...p, score: entry.score } : p;
   });
 
-  // 문항별 O/X 기록
   const qIdx = currentQuestion ? currentQuestion.questionIndex : -1;
   if (qIdx >= 0) {
     players.forEach(p => {
@@ -208,7 +221,24 @@ function onReveal(msg) {
 
   renderScoreBar();
 
-  // 정답/오답 표시
+  // 새로 공개된 O/X 셀에 stamp 애니메이션
+  if (qIdx >= 0) {
+    scoreBar.querySelectorAll('tr[data-player-id]').forEach(tr => {
+      const qCells = tr.querySelectorAll('.st-q');
+      const cell = qCells[qIdx];
+      if (cell && (cell.classList.contains('st-correct') || cell.classList.contains('st-wrong'))) {
+        cell.classList.add('stamp');
+      }
+    });
+  }
+
+  // 내 점수 상승 float
+  const myAfter = players.find(p => p.id === playerId);
+  const newScore = myAfter ? (myAfter.score || 0) : 0;
+  const delta = newScore - prevScore;
+  if (delta > 0) floatScore(delta);
+
+  // 정답/오답 버튼 표시
   const btns = [...optionGrid.querySelectorAll('.option-btn')];
   btns.forEach((btn, i) => {
     btn.disabled = true;
@@ -216,11 +246,25 @@ function onReveal(msg) {
     else if (i === myAnswer)    btn.classList.add('is-wrong');
   });
 
-  const correct = myAnswer === msg.correctIndex;
-  revealResult.textContent = myAnswer === null ? '⏱ 시간 초과' : correct ? '🎉 정답!' : '❌ 오답';
+  const timedOut = myAnswer === null;
+  const correct  = myAnswer === msg.correctIndex;
+
+  revealResult.textContent = timedOut ? '⏱ 시간 초과' : correct ? '🎉 정답!' : '❌ 오답';
   revealResult.className   = 'reveal-result ' + (correct ? 'is-correct' : 'is-wrong');
   revealExplanation.textContent = msg.explanation;
   revealPanel.classList.remove('is-hidden');
+
+  // 이펙트
+  if (correct) {
+    comboCount++;
+    flashScreen('correct');
+    spawnConfetti(40, 1500);
+    if (wasFirstSubmit) showFirstBadge();
+    if (comboCount >= 2) showComboBanner(comboCount);
+  } else {
+    comboCount = 0;
+    if (!timedOut) flashScreen('wrong');
+  }
 }
 
 function onEnd(msg) {
@@ -247,6 +291,7 @@ function onEnd(msg) {
   });
 
   showScreen('result');
+  spawnConfetti(120, 4000);
 }
 
 function onChat(msg) {
@@ -263,6 +308,7 @@ function onChat(msg) {
 /* ── 답 제출 ─────────────────────────────────────────── */
 function submitAnswer(index) {
   if (myAnswer !== null) return;
+  wasFirstSubmit = submittedIds.size === 0;
   myAnswer = index;
 
   [...optionGrid.querySelectorAll('.option-btn')].forEach((btn, i) => {
@@ -287,13 +333,138 @@ function startTimer(seconds) {
   timerInterval = setInterval(() => {
     remaining -= 1;
     timerDisplay.textContent = Math.max(0, remaining);
-    if (remaining <= 3) timerDisplay.classList.add('is-urgent');
+    if (remaining <= 5) timerDisplay.classList.add('is-urgent');
     if (remaining <= 0) stopTimer();
   }, 1000);
 }
 
 function stopTimer() {
   if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+}
+
+/* ══════════════════════════════════════════════════════
+   이펙트
+   ══════════════════════════════════════════════════════ */
+
+/* confetti ─ canvas 파티클 */
+function spawnConfetti(count = 60, duration = 2000) {
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:999;';
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+
+  const colors = ['#7c3aed','#f59e0b','#ef4444','#22c55e','#3b82f6','#ec4899','#14b8a6','#f97316'];
+  const particles = Array.from({ length: count }, () => ({
+    x:    Math.random() * canvas.width,
+    y:    -10 - Math.random() * 80,
+    vx:   (Math.random() - 0.5) * 4,
+    vy:   2 + Math.random() * 4,
+    r:    4 + Math.random() * 5,
+    color: colors[Math.floor(Math.random() * colors.length)],
+    rot:  Math.random() * Math.PI * 2,
+    rotV: (Math.random() - 0.5) * 0.15,
+    rect: Math.random() > 0.4,
+  }));
+
+  const start = performance.now();
+  function draw(now) {
+    const t = now - start;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const fadeStart = duration * 0.65;
+    const alpha = t > fadeStart ? Math.max(0, 1 - (t - fadeStart) / (duration - fadeStart)) : 1;
+
+    for (const p of particles) {
+      p.x += p.vx; p.y += p.vy; p.vy += 0.12; p.rot += p.rotV;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle   = p.color;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      if (p.rect) ctx.fillRect(-p.r, -p.r * 0.4, p.r * 2, p.r * 0.8);
+      else { ctx.beginPath(); ctx.arc(0, 0, p.r * 0.7, 0, Math.PI * 2); ctx.fill(); }
+      ctx.restore();
+    }
+
+    if (t < duration) requestAnimationFrame(draw);
+    else canvas.remove();
+  }
+  requestAnimationFrame(draw);
+}
+
+/* 화면 flash + 오답 시 shake */
+function flashScreen(type) {
+  const el = document.createElement('div');
+  el.className = 'fx-flash fx-' + type;
+  document.body.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+
+  if (type === 'wrong') {
+    const panel = document.querySelector('.quiz-panel');
+    if (panel) {
+      panel.classList.remove('is-shaking');
+      panel.offsetWidth; // force reflow
+      panel.classList.add('is-shaking');
+      panel.addEventListener('animationend', () => panel.classList.remove('is-shaking'), { once: true });
+    }
+  }
+}
+
+/* 연속 정답 배너 */
+function showComboBanner(count) {
+  const flames = count >= 4 ? '🔥🔥🔥' : count === 3 ? '🔥🔥' : '🔥';
+  const el = document.createElement('div');
+  el.className = 'combo-banner';
+  el.textContent = `${flames} ${count}연속 정답!`;
+  document.body.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+}
+
+/* 1등 정답 뱃지 */
+function showFirstBadge() {
+  const el = document.createElement('div');
+  el.className = 'first-badge';
+  el.textContent = '⚡ 1등 정답!';
+  document.body.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+}
+
+/* 점수 상승 float */
+function floatScore(delta) {
+  let x = window.innerWidth / 2;
+  let y = scoreBar.getBoundingClientRect().bottom || 100;
+
+  const myRow = scoreBar.querySelector(`tr[data-player-id="${playerId}"]`);
+  if (myRow) {
+    const cell = myRow.querySelector('.st-score');
+    if (cell) {
+      const r = cell.getBoundingClientRect();
+      x = r.left + r.width / 2;
+      y = r.top + r.height / 2;
+    }
+  }
+
+  const el = document.createElement('div');
+  el.className = 'score-float';
+  el.textContent = '+' + delta;
+  el.style.left = x + 'px';
+  el.style.top  = y + 'px';
+  document.body.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+}
+
+/* 버튼 ripple */
+function addRipple(btn, e) {
+  const rect = btn.getBoundingClientRect();
+  const x = (e.clientX ?? rect.left + rect.width / 2) - rect.left;
+  const y = (e.clientY ?? rect.top  + rect.height / 2) - rect.top;
+  const ripple = document.createElement('span');
+  ripple.className = 'ripple';
+  ripple.style.left = x + 'px';
+  ripple.style.top  = y + 'px';
+  btn.appendChild(ripple);
+  ripple.addEventListener('animationend', () => ripple.remove());
 }
 
 /* ── 렌더링 ──────────────────────────────────────────── */
@@ -445,7 +616,6 @@ function escHtml(str) {
 if (code) {
   connect();
 } else {
-  // 솔로 테스트: 방 코드 없이 실행 시 셋업 화면 유지
   document.querySelector('.setup-copy').textContent =
     '방 코드 없이 실행 중입니다. 로비에서 입장해 주세요.';
   readyBtn.disabled = true;
