@@ -323,11 +323,14 @@ export class GameRoom {
   }
 
   _buildGameVotes(sessions) {
-    const tally = {};
+    const result = {};
     for (const { player } of sessions) {
-      if (player.gameVote) tally[player.gameVote] = (tally[player.gameVote] || 0) + 1;
+      if (player.gameVote) {
+        if (!result[player.gameVote]) result[player.gameVote] = [];
+        result[player.gameVote].push(player.name);
+      }
     }
-    return tally;
+    return result;
   }
 
   _buildRankedScores(scores) {

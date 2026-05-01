@@ -188,53 +188,55 @@ h1, h2 { margin-top: 0; }
 
 /* Score bar — always visible at top */
 .score-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.9);
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.95);
   border-bottom: 1px solid var(--panel-border);
   backdrop-filter: blur(6px);
   position: sticky;
   top: 0;
   z-index: 10;
-  min-height: 52px;
+  overflow-x: auto;
 }
 
-.score-chip {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  background: white;
-  border-radius: 100px;
-  padding: 4px 10px 4px 4px;
-  font-size: 0.78rem;
+/* Archery-style score table */
+.score-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.7rem;
   font-weight: 600;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e5e7eb;
-  transition: border-color 0.2s;
+  white-space: nowrap;
 }
 
-.score-chip.has-submitted { border-color: var(--accent); }
-
-.score-char {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-  border-radius: 50%;
-}
-
-.score-name { color: inherit; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.score-pts { color: var(--accent-strong); font-weight: 700; }
-
-.score-submitted {
-  font-size: 0.9rem;
-  width: 14px;
+.score-table th,
+.score-table td {
+  padding: 3px 5px;
   text-align: center;
-  color: var(--correct);
-  font-weight: 700;
+  border: 1px solid #e5e7eb;
+  line-height: 1.4;
 }
+
+.st-name {
+  text-align: left;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.st-player-name {
+  font-weight: 700;
+  font-size: 0.7rem;
+}
+
+.st-q   { width: 18px; color: #9ca3af; }
+.st-score { font-weight: 700; color: var(--accent-strong); padding-left: 8px; }
+
+.st-current { background: rgba(124, 58, 237, 0.07); color: var(--ink); }
+
+.st-correct  { color: var(--correct); font-weight: 800; }
+.st-wrong    { color: var(--wrong);   font-weight: 800; }
+.st-timeout  { color: #d1d5db; }
+.st-submitted { color: var(--accent); font-weight: 700; }
+.st-pending  { color: #d1d5db; }
 
 /* Quiz panel */
 .quiz-panel {

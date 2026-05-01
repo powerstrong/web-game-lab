@@ -28,6 +28,7 @@ let myAnswer = null;
 let timerInterval = null;
 let chatVisible = false;
 let chatHideTimer = null;
+let answerHistory = {}; // { playerId: { questionIndex: true | false | null } }
 
 /* ── DOM 참조 ──────────────────────────────────────── */
 const setupScreen      = document.getElementById('setupScreen');
@@ -118,6 +119,7 @@ function handleMessage(msg) {
 /* ── 메시지 핸들러 ────────────────────────────────────── */
 function onJoined(msg) {
   players = msg.players || [];
+  answerHistory = {};
   renderSetupPlayers();
   renderScoreBar();
 }
@@ -183,6 +185,19 @@ function onReveal(msg) {
     const entry = msg.scores.find(s => s.id === p.id);
     return entry ? { ...p, score: entry.score } : p;
   });
+
+  // 문항별 O/X 기록
+  const qIdx = currentQuestion ? currentQuestion.questionIndex : -1;
+  if (qIdx >= 0) {
+    players.forEach(p => {
+      if (!answerHistory[p.id]) answerHistory[p.id] = {};
+      const submitted = msg.submissions ? msg.submissions[p.id] : undefined;
+      answerHistory[p.id][qIdx] = submitted !== undefined
+        ? submitted === msg.correctIndex
+        : null;
+    });
+  }
+
   renderScoreBar();
 
   // 정답/오답 표시
@@ -290,27 +305,73 @@ function renderSetupPlayers() {
 function renderScoreBar() {
   scoreBar.innerHTML = '';
   const sorted = [...players].sort((a, b) => b.score - a.score);
+  const total  = (currentQuestion && currentQuestion.total) || 10;
+  const curIdx = currentQuestion ? currentQuestion.questionIndex : -1;
+
+  const table = document.createElement('table');
+  table.className = 'score-table';
+
+  // 헤더
+  const hRow = document.createElement('tr');
+  hRow.appendChild(Object.assign(document.createElement('th'), { className: 'st-name' }));
+  for (let i = 0; i < total; i++) {
+    const th = document.createElement('th');
+    th.className = 'st-q' + (i === curIdx ? ' st-current' : '');
+    th.textContent = i + 1;
+    hRow.appendChild(th);
+  }
+  hRow.appendChild(Object.assign(document.createElement('th'), { className: 'st-score', textContent: '점수' }));
+  table.appendChild(hRow);
+
+  // 플레이어 행
   sorted.forEach(p => {
-    const chip = document.createElement('div');
-    chip.className = 'score-chip';
-    chip.dataset.playerId = p.id;
     const color = PLAYER_COLORS[p.colorIndex % PLAYER_COLORS.length];
-    chip.innerHTML =
-      `<img class="score-char" src="${CHAR_IMAGES[p.characterId] || ''}" alt="${escHtml(p.name)}" />` +
-      `<span class="score-name" style="color:${color}">${escHtml(p.name)}</span>` +
-      `<span class="score-pts">${p.score}pt</span>` +
-      `<span class="score-submitted"></span>`;
-    scoreBar.appendChild(chip);
+    const tr = document.createElement('tr');
+    tr.dataset.playerId = p.id;
+
+    const nameTd = document.createElement('td');
+    nameTd.className = 'st-name';
+    nameTd.innerHTML = `<span class="st-player-name" style="color:${color}">${escHtml(p.name)}</span>`;
+    tr.appendChild(nameTd);
+
+    const history = answerHistory[p.id] || {};
+    for (let i = 0; i < total; i++) {
+      const td = document.createElement('td');
+      td.className = 'st-q' + (i === curIdx ? ' st-current' : '');
+      if (i in history) {
+        const ok = history[i];
+        td.textContent = ok === null ? '—' : ok ? 'O' : 'X';
+        td.classList.add(ok === null ? 'st-timeout' : ok ? 'st-correct' : 'st-wrong');
+      } else if (i === curIdx) {
+        td.textContent = submittedIds.has(p.id) ? '✓' : '·';
+        td.classList.add(submittedIds.has(p.id) ? 'st-submitted' : 'st-pending');
+      }
+      tr.appendChild(td);
+    }
+
+    const scoreTd = document.createElement('td');
+    scoreTd.className = 'st-score';
+    scoreTd.textContent = p.score;
+    tr.appendChild(scoreTd);
+
+    table.appendChild(tr);
   });
-  updateSubmittedIndicators();
+
+  scoreBar.appendChild(table);
 }
 
 function updateSubmittedIndicators() {
-  scoreBar.querySelectorAll('.score-chip').forEach(chip => {
-    const submitted = submittedIds.has(chip.dataset.playerId);
-    chip.classList.toggle('has-submitted', submitted);
-    const el = chip.querySelector('.score-submitted');
-    if (el) el.textContent = submitted ? '✓' : '';
+  const curIdx = currentQuestion ? currentQuestion.questionIndex : -1;
+  if (curIdx < 0) return;
+  scoreBar.querySelectorAll('tr[data-player-id]').forEach(tr => {
+    const pid = tr.dataset.playerId;
+    if (answerHistory[pid] && curIdx in answerHistory[pid]) return;
+    const cells = tr.querySelectorAll('.st-q');
+    const cell  = cells[curIdx];
+    if (!cell) return;
+    const submitted = submittedIds.has(pid);
+    cell.textContent = submitted ? '✓' : '·';
+    cell.className = 'st-q st-current ' + (submitted ? 'st-submitted' : 'st-pending');
   });
 }
 

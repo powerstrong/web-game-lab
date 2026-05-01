@@ -332,7 +332,7 @@ function renderPlayers(players, gameVotes) {
 
   (players || []).forEach((p) => {
     const colorIdx = typeof p.colorIndex === 'number' ? p.colorIndex % PLAYER_COLORS.length : 0;
-    const votedGame = gameVotes[p.id];
+    const votedGame = p.gameVote || null;
     const meta = votedGame ? GAME_META[votedGame] : null;
 
     const item = document.createElement('div');
@@ -366,9 +366,9 @@ function renderGameVotes(votes) {
   Object.keys(GAME_META).forEach((gameId) => {
     const badge = document.getElementById(`badge-${gameId}`);
     if (!badge) return;
-    const count = votes[gameId] || 0;
-    badge.textContent = count;
-    badge.classList.toggle('visible', count > 0);
+    const voters = Array.isArray(votes[gameId]) ? votes[gameId] : [];
+    badge.textContent = voters.join(' · ');
+    badge.classList.toggle('visible', voters.length > 0);
   });
 }
 
