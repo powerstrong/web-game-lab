@@ -148,6 +148,50 @@ h2 {
   text-align: center;
 }
 
+.character-card__img {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  margin-bottom: 6px;
+}
+
+.character-card__img[src=""] ,
+.character-card__img:not([src]) {
+  display: none;
+}
+
+.character-card[data-taken] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.countdown-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  place-items: center;
+  background: rgba(47, 33, 24, 0.55);
+  color: #fff;
+  font-size: 6rem;
+  font-weight: 900;
+}
+
+.you-label {
+  display: block;
+  margin-top: 4px;
+  color: var(--accent-strong);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.char-name {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
 .setup-actions {
   margin-top: 14px;
 }
