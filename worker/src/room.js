@@ -15,7 +15,7 @@ const GAME_PATHS = {
 const QUIZ_VALID_CHARS = ['mochi-rabbit', 'pudding-hamster', 'peach-chick', 'latte-puppy', 'mint-kitten'];
 const QUIZ_QUESTION_COUNT = 10;
 const QUIZ_TIME_LIMIT_MS = 10000;
-const QUIZ_REVEAL_MS = 2500;
+const QUIZ_REVEAL_MS = 3500;
 const QUIZ_POINTS_PER_CORRECT = 100;
 
 function randomHex(len) {
