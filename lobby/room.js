@@ -12,7 +12,7 @@ const PLAYER_COLORS = [
 
 // Built from games/registry.js (loaded before this script via room.html)
 const GAME_META = Object.fromEntries(
-  (window.GAME_REGISTRY || []).map(g => [g.id, {
+  (window.GAME_REGISTRY || []).filter(g => !g.hidden).map(g => [g.id, {
     label: g.title,
     icon: g.icon,
     path: g.path,

@@ -6,6 +6,11 @@ compatibility_date = "2024-01-01"
 name = "GAME_ROOM"
 class_name = "GameRoom"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "web-game-lab-scores"
+database_id = "23f87798-03ba-4359-8a90-65fed250f829"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["GameRoom"]

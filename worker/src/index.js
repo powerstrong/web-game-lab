@@ -1,3 +1,5 @@
+import { getWeekKey, getWeeklyLeaderboard } from './leaderboard.js';
+
 export { GameRoom } from './room.js';
 
 const CORS_HEADERS = {
@@ -24,7 +26,18 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    // POST /api/rooms — create a new room
+    // GET /api/leaderboard?game=:game
+    if (method === 'GET' && url.pathname === '/api/leaderboard') {
+      const game = url.searchParams.get('game');
+      if (!game) {
+        return corsResponse(JSON.stringify({ error: 'Missing game parameter' }), { status: 400 });
+      }
+
+      const entries = await getWeeklyLeaderboard(env.DB, game);
+      return corsResponse(JSON.stringify({ game, week: getWeekKey(), entries }));
+    }
+
+    // POST /api/rooms - create a new room
     if (method === 'POST' && url.pathname === '/api/rooms') {
       const code = String(Math.floor(Math.random() * 9000) + 1000);
 
@@ -42,7 +55,7 @@ export default {
       return corsResponse(JSON.stringify({ code }));
     }
 
-    // GET /api/rooms/:code — WebSocket upgrade to GameRoom DO
+    // GET /api/rooms/:code - WebSocket upgrade to GameRoom DO
     const roomMatch = url.pathname.match(/^\/api\/rooms\/(\d+)$/);
     if (method === 'GET' && roomMatch) {
       const code = roomMatch[1];

@@ -122,8 +122,45 @@ function handleMessage(msg) {
     case 'QUIZ_SUBMITTED':     onSubmitted(msg);    break;
     case 'QUIZ_REVEAL':        onReveal(msg);       break;
     case 'QUIZ_END':           onEnd(msg);          break;
+    case 'new_record':         onNewRecord(msg);    break;
     case 'chat':               onChat(msg);         break;
   }
+}
+
+function onNewRecord(msg) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = [
+    'position:fixed;inset:0;z-index:10000',
+    'display:flex;align-items:center;justify-content:center',
+    'background:rgba(0,0,0,0.55);backdrop-filter:blur(4px)',
+  ].join(';');
+
+  const card = document.createElement('div');
+  card.style.cssText = [
+    'background:linear-gradient(135deg,#ffde2e,#ffb800)',
+    'padding:32px 36px;border-radius:24px;text-align:center',
+    'box-shadow:0 20px 48px rgba(0,0,0,0.28)',
+    'font-family:"Noto Sans KR",sans-serif',
+    'animation:_nr_pop 0.4s cubic-bezier(0.34,1.56,0.64,1) both',
+  ].join(';');
+
+  card.innerHTML = `
+    <style>@keyframes _nr_pop{from{transform:scale(0.7);opacity:0}to{transform:scale(1);opacity:1}}</style>
+    <div style="font-size:3.2rem;line-height:1">🏆</div>
+    <div style="margin-top:10px;font-size:1.25rem;font-weight:800;color:#4e3400">이번 주 신기록!</div>
+    <div style="margin:10px 0;font-size:2.6rem;font-weight:900;color:#182338">${msg.score}<span style="font-size:1.1rem">점</span></div>
+    ${msg.previousBest != null ? `<div style="font-size:0.88rem;color:rgba(78,52,0,0.72);font-weight:600">이전 기록: ${msg.previousBest}점</div>` : ''}
+    <div style="margin-top:14px;display:inline-block;background:#fff;padding:6px 18px;border-radius:12px;font-weight:800;color:#d97706">${msg.rank}위 달성!</div>
+  `;
+
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  setTimeout(() => {
+    overlay.style.transition = 'opacity 0.4s';
+    overlay.style.opacity = '0';
+    setTimeout(() => overlay.remove(), 400);
+  }, 3000);
 }
 
 /* ── 메시지 핸들러 ────────────────────────────────────── */

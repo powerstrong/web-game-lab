@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🏆 주간 리더보드</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    :root {
+      --primary: #4b6bff;
+      --primary-strong: #2f51f5;
+      --primary-soft: #f0f3ff;
+      --gold: #f59e0b;
+      --silver: #94a3b8;
+      --bronze: #b45309;
+      --ink: #182338;
+      --muted: #60708c;
+      --border: rgba(24, 35, 56, 0.1);
+      --surface: rgba(255, 255, 255, 0.92);
+      --shadow: 0 24px 60px rgba(70, 88, 146, 0.12);
+    }
+
+    body {
+      margin: 0;
+      font-family: 'Noto Sans KR', sans-serif;
+      color: var(--ink);
+      min-height: 100dvh;
+      padding: 20px 16px 40px;
+      background:
+        radial-gradient(circle at top left, rgba(75, 107, 255, 0.15), transparent 30%),
+        linear-gradient(180deg, #fbfcff 0%, #f4f7ff 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .shell {
+      width: min(100%, 480px);
+      background: var(--surface);
+      backdrop-filter: blur(16px);
+      border-radius: 28px;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      padding: 28px 22px;
+      margin-top: 16px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      font-family: 'Outfit', 'Noto Sans KR', sans-serif;
+      font-size: clamp(1.6rem, 6vw, 2rem);
+      margin: 0 0 8px;
+      letter-spacing: -0.03em;
+    }
+
+    .week-range {
+      font-size: 0.88rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      background: var(--primary-soft);
+      padding: 5px;
+      border-radius: 16px;
+      margin-bottom: 22px;
+    }
+
+    .tab {
+      border: none;
+      background: none;
+      padding: 10px 6px;
+      border-radius: 12px;
+      font: inherit;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.18s;
+      line-height: 1.3;
+    }
+
+    .tab.active {
+      background: #fff;
+      color: var(--primary);
+      box-shadow: 0 4px 12px rgba(75, 107, 255, 0.14);
+    }
+
+    /* Table */
+    .table-wrap {
+      min-height: 280px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0 6px;
+    }
+
+    thead th {
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0 12px 6px;
+      text-align: left;
+    }
+
+    thead th:first-child { text-align: center; width: 44px; }
+    thead th:last-child  { text-align: right; }
+
+    tbody tr td {
+      background: #fff;
+      padding: 13px 12px;
+      font-size: 0.94rem;
+      border-top: 1px solid transparent;
+      border-bottom: 1px solid transparent;
+    }
+
+    tbody tr td:first-child {
+      border-radius: 14px 0 0 14px;
+      border-left: 1px solid transparent;
+      text-align: center;
+      font-weight: 900;
+      font-size: 1rem;
+      width: 44px;
+    }
+
+    tbody tr td:last-child {
+      border-radius: 0 14px 14px 0;
+      border-right: 1px solid transparent;
+      text-align: right;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    tbody tr:nth-child(1) td:first-child { color: var(--gold); }
+    tbody tr:nth-child(2) td:first-child { color: var(--silver); }
+    tbody tr:nth-child(3) td:first-child { color: var(--bronze); }
+
+    .player-name { font-weight: 700; }
+
+    .score-cell { font-weight: 800; color: var(--primary); }
+    .score-unit { font-size: 0.75rem; opacity: 0.65; margin-left: 2px; }
+
+    /* States */
+    .state-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 0;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.95rem;
+      gap: 10px;
+    }
+
+    .state-box .icon { font-size: 2.2rem; }
+
+    .hidden { display: none !important; }
+
+    /* Back button */
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 20px;
+      padding: 10px 22px;
+      background: var(--primary-soft);
+      color: var(--primary-strong);
+      border-radius: 14px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 0.88rem;
+      transition: transform 0.18s;
+    }
+
+    .back-btn:hover { transform: translateX(-3px); }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <h1>🏆 주간 리더보드</h1>
+      <div class="week-range" id="weekRange">—</div>
+    </header>
+
+    <div class="tabs">
+      <button class="tab active" data-game="jump-climber">말랑<br>점프</button>
+      <button class="tab" data-game="mallang-quiz-battle">퀴즈<br>배틀</button>
+      <button class="tab" data-game="mallang-tug-war">줄<br>다리기</button>
+    </div>
+
+    <div class="table-wrap">
+      <div id="stateLoading" class="state-box">
+        <span class="icon">⏳</span>기록을 불러오는 중…
+      </div>
+      <div id="stateEmpty" class="state-box hidden">
+        <span class="icon">🎮</span>아직 기록이 없어요
+      </div>
+      <div id="stateError" class="state-box hidden">
+        <span class="icon">😢</span>데이터를 불러오지 못했어요
+      </div>
+
+      <table id="lbTable" class="hidden">
+        <thead>
+          <tr>
+            <th>순위</th>
+            <th>이름</th>
+            <th>점수</th>
+            <th>판수</th>
+          </tr>
+        </thead>
+        <tbody id="lbBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <a href="/" class="back-btn">← 홈으로</a>
+
+  <script>
+    const UNITS = {
+      'jump-climber':       'm',
+      'mallang-quiz-battle': '점',
+      'mallang-tug-war':    '%',
+    };
+
+    let currentGame = 'jump-climber';
+    let refreshTimer = null;
+
+    /* ── 주차 표시 ── */
+    function getWeekBounds() {
+      const now = new Date();
+      const day = now.getDay() === 0 ? 7 : now.getDay(); // 1=월 … 7=일
+      const monday = new Date(now);
+      monday.setDate(now.getDate() - (day - 1));
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      return { monday, sunday };
+    }
+
+    function formatDate(d) {
+      const wd = ['일','월','화','수','목','금','토'][d.getDay()];
+      return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일(${wd})`;
+    }
+
+    function renderWeekRange() {
+      const { monday, sunday } = getWeekBounds();
+      document.getElementById('weekRange').textContent =
+        `${formatDate(monday)} ~ ${formatDate(sunday)}`;
+    }
+
+    /* ── 상태 전환 ── */
+    function showState(name) {
+      ['Loading','Empty','Error'].forEach(s =>
+        document.getElementById('state' + s).classList.toggle('hidden', s.toLowerCase() !== name)
+      );
+      document.getElementById('lbTable').classList.toggle('hidden', name !== 'table');
+    }
+
+    /* ── 데이터 로드 ── */
+    async function load() {
+      showState('loading');
+      try {
+        const res = await fetch(`/api/leaderboard?game=${currentGame}`);
+        if (!res.ok) throw new Error(res.status);
+        const data = await res.json();
+        const entries = data.entries || [];
+
+        if (entries.length === 0) { showState('empty'); return; }
+
+        const unit = UNITS[currentGame] || '';
+        const tbody = document.getElementById('lbBody');
+        tbody.innerHTML = '';
+
+        entries.forEach((row, i) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${i + 1}</td>
+            <td class="player-name">${escHtml(row.player_name)}</td>
+            <td><span class="score-cell">${row.best_score}</span><span class="score-unit">${unit}</span></td>
+            <td>${row.games_played}판</td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        showState('table');
+      } catch {
+        showState('error');
+      }
+    }
+
+    function escHtml(s) {
+      return String(s).replace(/[&<>"']/g, c =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
+      );
+    }
+
+    /* ── 탭 전환 ── */
+    document.querySelectorAll('.tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        btn.classList.add('active');
+        currentGame = btn.dataset.game;
+        load();
+      });
+    });
+
+    /* ── 초기화 & 자동 새로고침 ── */
+    renderWeekRange();
+    load();
+    refreshTimer = setInterval(load, 60_000);
+  </script>
+</body>
+</html>

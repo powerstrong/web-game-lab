@@ -49,6 +49,7 @@ window.GAME_REGISTRY = [
     playMode: '온라인 실시간',
     durationSeconds: 30,
     status: 'PLAYABLE',
+    hidden: true,
     icon: '🪢',
     accentColor: '#ff9f50',
     resultLabel: '우세도',

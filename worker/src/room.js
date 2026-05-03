@@ -1,4 +1,5 @@
 import { QUIZ_BANK } from './quiz_bank.js';
+import { submitScore } from './leaderboard.js';
 
 const COLORS = [
   '#ef4444', '#3b82f6', '#22c55e', '#f59e0b',
@@ -320,6 +321,35 @@ export class GameRoom {
       if (spectators != null && Boolean(player.isSpectator) !== spectators) continue;
       try { ws.send(text); } catch { /* ignore closed */ }
     }
+  }
+
+  async _submitScoresToLeaderboard(gameId, players) {
+    try {
+      if (!this.env?.DB || !Array.isArray(players) || players.length === 0) return;
+
+      const roomCode = (await this.state.storage.get('roomCode')) || null;
+      const sessions = this._getGameSessions(gameId);
+
+      for (const { id, name, score } of players) {
+        try {
+          const { isNewRecord, previousBest, rank } = await submitScore(this.env.DB, {
+            playerName: name,
+            gameId,
+            score,
+            roomCode,
+          });
+
+          if (!isNewRecord) continue;
+
+          const session = sessions.find(({ player }) => player.id === id);
+          if (!session) continue;
+
+          try {
+            session.ws.send(JSON.stringify({ type: 'new_record', score, previousBest, rank }));
+          } catch { /* ignore closed */ }
+        } catch { /* ignore leaderboard submission failure */ }
+      }
+    } catch { /* never throw from leaderboard submission */ }
   }
 
   _buildGameVotes(sessions) {
@@ -904,6 +934,7 @@ export class GameRoom {
 
     await this.state.storage.put('scores', scores);
     await this.state.storage.put('phase', 'results');
+    this._submitScoresToLeaderboard('jump-climber', Object.entries(scores).map(([id, s]) => ({ id, name: s.name, score: s.score })));
 
     const ranked = this._buildRankedScores(scores);
     this._broadcastGame({
@@ -1561,6 +1592,16 @@ export class GameRoom {
   _broadcastTugGameEnd(reason) {
     const game = this.tugWarGame;
     if (!game) return;
+    if (reason !== 'abandoned') {
+      const tugPlayers = game.roster.map(({ id }) => {
+        const p = game.players[id];
+        const score = p.side === 'left'
+          ? Math.round((game.ropePos + 1) / 2 * 100)
+          : Math.round((1 - game.ropePos) / 2 * 100);
+        return { id, name: p.name, score };
+      });
+      this._submitScoresToLeaderboard('mallang-tug-war', tugPlayers);
+    }
     this._broadcastGame({
       type: 'TUG_GAME_END',
       reason,
@@ -1857,6 +1898,7 @@ export class GameRoom {
       .map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, characterId: p.characterId, colorIndex: p.colorIndex, score: p.score }));
 
     this._broadcastGame({ type: 'QUIZ_END', rankings }, 'mallang-quiz-battle');
+    this._submitScoresToLeaderboard('mallang-quiz-battle', rankings.map(r => ({ id: r.id, name: r.name, score: r.score })));
 
     const scores = {};
     this.quizGame.players.forEach(p => {
