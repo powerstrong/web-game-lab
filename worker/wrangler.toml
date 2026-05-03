@@ -9,7 +9,7 @@ class_name = "GameRoom"
 [[d1_databases]]
 binding = "DB"
 database_name = "web-game-lab-scores"
-database_id = "23f87798-03ba-4359-8a90-65fed250f829"
+database_id = "50c32806-334a-49db-93c8-7c7cc123b40c"
 
 [[migrations]]
 tag = "v1"
