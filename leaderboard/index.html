@@ -232,6 +232,7 @@
 
   <a href="/" class="back-btn">← 홈으로</a>
 
+  <script src="/lobby/config.js"></script>
   <script>
     const UNITS = {
       'jump-climber':       'm',
@@ -241,6 +242,12 @@
 
     let currentGame = 'jump-climber';
     let refreshTimer = null;
+    const API_BASE = (window.WORKER_URL || '').replace(/\/+$/, '');
+
+    function getLeaderboardUrl(game) {
+      const path = `/api/leaderboard?game=${encodeURIComponent(game)}`;
+      return API_BASE ? `${API_BASE}${path}` : path;
+    }
 
     /* ── 주차 표시 ── */
     function getWeekBounds() {
@@ -276,7 +283,7 @@
     async function load() {
       showState('loading');
       try {
-        const res = await fetch(`/api/leaderboard?game=${currentGame}`);
+        const res = await fetch(getLeaderboardUrl(currentGame), { cache: 'no-store' });
         if (!res.ok) throw new Error(res.status);
         const data = await res.json();
         const entries = data.entries || [];
