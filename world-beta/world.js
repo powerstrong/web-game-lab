@@ -90,6 +90,9 @@
   let ws = null;
   let me = null;        // { id, name, characterId, x, y, dir, moving }
   let peers = new Map(); // id -> { id, name, characterId, x, y, dir, moving }
+  let zonesCatalog = []; // [{ id, gameId, title, rect, minPlayers, maxPlayers, holdMs }]
+  let zoneStates = new Map(); // zoneId -> { count, ready, minPlayers, maxPlayers }
+  let myZoneProgress = null;  // { zoneId, candidateSince, holdMs, ready, serverNow, clientAt }
   let bounds = { width: canvas.width, height: canvas.height };
   let lastFrameAt = 0;
   let heartbeatTimer = null;
@@ -199,6 +202,8 @@
       case 'tick': return handleTick(env.d);
       case 'chat': return handleChat(env.d);
       case 'reaction': return handleReaction(env.d);
+      case 'zone_state': return handleZoneState(env.d);
+      case 'zone_progress': return handleZoneProgress(env.d);
       default:
         // Quietly ignore unknown types so future server messages don't break us.
         return;
@@ -218,6 +223,15 @@
         if (p && p.id && p.id !== me.id) peers.set(p.id, { ...p });
       }
     }
+
+    zonesCatalog = Array.isArray(d.zones) ? d.zones : [];
+    zoneStates = new Map(zonesCatalog.map((z) => [z.id, {
+      count: numOr(z.count, 0),
+      ready: numOr(z.ready, 0),
+      minPlayers: z.minPlayers,
+      maxPlayers: z.maxPlayers,
+    }]));
+    myZoneProgress = null;
 
     joinPanel.classList.add('hidden');
     worldPanel.classList.remove('hidden');
@@ -305,6 +319,31 @@
   function handleReaction(d) {
     if (!d?.id || !REACTION_GLYPHS[d.emoji]) return;
     reactions.set(d.id, { glyph: REACTION_GLYPHS[d.emoji], until: performance.now() + REACTION_MS });
+  }
+
+  function handleZoneState(d) {
+    if (!d?.zoneId) return;
+    zoneStates.set(d.zoneId, {
+      count: numOr(d.count, 0),
+      ready: numOr(d.ready, 0),
+      minPlayers: numOr(d.minPlayers, 1),
+      maxPlayers: numOr(d.maxPlayers, 99),
+    });
+  }
+
+  function handleZoneProgress(d) {
+    if (!d || !d.zoneId) {
+      myZoneProgress = null;
+      return;
+    }
+    myZoneProgress = {
+      zoneId: d.zoneId,
+      candidateSince: numOr(d.candidateSince, Date.now()),
+      holdMs: numOr(d.holdMs, 3000),
+      ready: !!d.ready,
+      serverNow: numOr(d.serverNow, Date.now()),
+      clientAt: performance.now(),
+    };
   }
 
   function handleServerError(d) {
@@ -431,6 +470,8 @@
       ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(canvas.width, y + 0.5); ctx.stroke();
     }
 
+    drawZones();
+
     // Draw peers behind me so my avatar sits on top when overlapping.
     for (const p of peers.values()) drawAvatar(p, /* isYou */ false);
     if (me) drawAvatar(me, /* isYou */ true);
@@ -438,6 +479,62 @@
     // Overlays on top of everything.
     const now = performance.now();
     drawOverlays(now);
+  }
+
+  function drawZones() {
+    for (const z of zonesCatalog) {
+      const st = zoneStates.get(z.id) || { count: 0, ready: 0 };
+      const r = z.rect;
+      const inHere = me && myZoneProgress && myZoneProgress.zoneId === z.id;
+
+      ctx.save();
+      ctx.fillStyle = inHere ? 'rgba(255,185,107,0.18)' : 'rgba(107,188,255,0.10)';
+      ctx.strokeStyle = inHere ? 'rgba(255,185,107,0.85)' : 'rgba(107,188,255,0.55)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash(inHere ? [] : [6, 4]);
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#f0f4ff';
+      ctx.font = 'bold 14px -apple-system, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(z.title, r.x + r.w / 2, r.y + 8);
+
+      ctx.font = '12px -apple-system, system-ui, sans-serif';
+      ctx.fillStyle = '#cfd8f7';
+      ctx.fillText(`${st.count}/${z.maxPlayers} (최소 ${z.minPlayers})`, r.x + r.w / 2, r.y + 26);
+
+      if (inHere) drawZoneCountdown(z, r);
+      ctx.restore();
+    }
+  }
+
+  function drawZoneCountdown(zone, r) {
+    if (!myZoneProgress) return;
+    const elapsedClient = performance.now() - myZoneProgress.clientAt;
+    // serverNow - candidateSince = elapsed at the moment server stamped this
+    const baseElapsed = Math.max(0, myZoneProgress.serverNow - myZoneProgress.candidateSince);
+    const elapsed = baseElapsed + elapsedClient;
+    const remain = Math.max(0, myZoneProgress.holdMs - elapsed);
+    const ratio = clamp(elapsed / myZoneProgress.holdMs, 0, 1);
+
+    ctx.fillStyle = '#1a1410';
+    ctx.font = 'bold 13px -apple-system, system-ui, sans-serif';
+    const status = myZoneProgress.ready ? '준비 완료 — 모이는 중...' : `참가 준비 ${(remain / 1000).toFixed(1)}초`;
+    ctx.fillText(status, r.x + r.w / 2, r.y + r.h - 32);
+
+    // Progress bar
+    const padX = 14;
+    const barW = r.w - padX * 2;
+    const barH = 6;
+    const barX = r.x + padX;
+    const barY = r.y + r.h - 14;
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = myZoneProgress.ready ? '#6bdfa1' : '#ffb96b';
+    ctx.fillRect(barX, barY, barW * ratio, barH);
   }
 
   function drawOverlays(now) {

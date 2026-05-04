@@ -12,8 +12,9 @@
  * The world state lives only in DO memory. Nothing here writes to D1.
  */
 
-import { GAME_ZONES } from './worldZones.js';
+import { GAME_ZONES, getZone, findZoneAt } from './worldZones.js';
 import { CHARACTERS, isValidCharacterId, randomCharacterId } from './characters.js';
+import { applyZonePresence, PLAYER_STATUS } from './matcher.js';
 
 const PROTOCOL_VERSION = 1;
 const MAX_NAME_LEN = 16;
@@ -122,6 +123,13 @@ export class WorldChannel {
     const attach = ws.deserializeAttachment() || {};
     if (attach.sessionId) {
       this._broadcast({ t: 'player_left', d: { id: attach.sessionId } }, ws);
+      // If this player was sitting in a zone, the count must update for others.
+      if (attach.currentZoneId) {
+        // Mark them as gone before recomputing counts.
+        ws.serializeAttachment({ ...attach, status: PLAYER_STATUS.ROAM, currentZoneId: null, candidateSince: null });
+        this._broadcastZoneState(attach.currentZoneId);
+        await this._scheduleZoneAlarm();
+      }
     }
   }
 
@@ -165,6 +173,20 @@ export class WorldChannel {
     });
 
     const peers = this._collectPlayers().filter((p) => p.id !== sessionId);
+    const zoneSnapshots = GAME_ZONES.map((z) => {
+      let count = 0, ready = 0;
+      for (const sock of this.state.getWebSockets()) {
+        const a = sock.deserializeAttachment();
+        if (!a || a.currentZoneId !== z.id) continue;
+        count += 1;
+        if (a.status === PLAYER_STATUS.INTENT_READY) ready += 1;
+      }
+      return {
+        id: z.id, gameId: z.gameId, title: z.title, rect: z.rect,
+        minPlayers: z.minPlayers, maxPlayers: z.maxPlayers, holdMs: z.holdMs,
+        count, ready,
+      };
+    });
     this._send(ws, {
       t: 'welcome',
       d: {
@@ -172,10 +194,7 @@ export class WorldChannel {
         loungeId: this.loungeId,
         bounds: WORLD_BOUNDS,
         characters: CHARACTERS.map((c) => ({ worldId: c.worldId, label: c.label, sheet: null })),
-        zones: GAME_ZONES.map((z) => ({
-          id: z.id, gameId: z.gameId, title: z.title, rect: z.rect,
-          minPlayers: z.minPlayers, maxPlayers: z.maxPlayers, holdMs: z.holdMs,
-        })),
+        zones: zoneSnapshots,
         players: peers,
         you: me,
       },
@@ -215,15 +234,129 @@ export class WorldChannel {
       return;
     }
 
+    // Re-evaluate zone presence at the new position. applyZonePresence is
+    // pure, so we just feed it the previous snapshot and the zone (if any).
+    const zone = findZoneAt(cx, cy);
+    const prevSnap = {
+      status: attach.status || PLAYER_STATUS.ROAM,
+      currentZoneId: attach.currentZoneId ?? null,
+      candidateSince: attach.candidateSince ?? null,
+    };
+    const nextSnap = applyZonePresence(prevSnap, zone, now);
+    const zoneChanged = nextSnap.currentZoneId !== prevSnap.currentZoneId;
+    const statusChanged = nextSnap.status !== prevSnap.status;
+
     ws.serializeAttachment({
       ...attach,
       x: cx, y: cy, dir, moving, lastMoveAt: now,
+      status: nextSnap.status,
+      currentZoneId: nextSnap.currentZoneId,
+      candidateSince: nextSnap.candidateSince,
     });
 
     this._broadcast({
       t: 'tick',
       d: { players: [{ id: attach.sessionId, x: cx, y: cy, dir, moving }], at: now },
     }, ws);
+
+    if (zoneChanged || statusChanged) {
+      // Notify the player about their own zone progress (or absence).
+      this._sendZoneProgress(ws, nextSnap, now);
+      // Broadcast updated counts for any zone that gained or lost this player.
+      const affected = new Set([prevSnap.currentZoneId, nextSnap.currentZoneId].filter(Boolean));
+      for (const zoneId of affected) this._broadcastZoneState(zoneId);
+      // Schedule alarm if a new candidate is dwelling.
+      await this._scheduleZoneAlarm();
+    }
+  }
+
+  // ── Zone state machine + alarms ─────────────────────────────────────────────
+
+  /* alarm() fires when at least one candidate is expected to cross holdMs.
+   * Re-evaluates every player's zone presence at the current time, broadcasts
+   * any changes, and re-arms the alarm for the next deadline (if any).
+   */
+  async alarm() {
+    const now = Date.now();
+    const affectedZones = new Set();
+    for (const ws of this.state.getWebSockets()) {
+      const a = ws.deserializeAttachment();
+      if (!a?.sessionId) continue;
+      const zone = a.currentZoneId ? getZone(a.currentZoneId) : null;
+      const prev = {
+        status: a.status || PLAYER_STATUS.ROAM,
+        currentZoneId: a.currentZoneId ?? null,
+        candidateSince: a.candidateSince ?? null,
+      };
+      const next = applyZonePresence(prev, zone, now);
+      if (next.status === prev.status && next.currentZoneId === prev.currentZoneId) continue;
+      ws.serializeAttachment({
+        ...a,
+        status: next.status,
+        currentZoneId: next.currentZoneId,
+        candidateSince: next.candidateSince,
+      });
+      this._sendZoneProgress(ws, next, now);
+      if (prev.currentZoneId) affectedZones.add(prev.currentZoneId);
+      if (next.currentZoneId) affectedZones.add(next.currentZoneId);
+    }
+    for (const zoneId of affectedZones) this._broadcastZoneState(zoneId);
+    await this._scheduleZoneAlarm();
+  }
+
+  async _scheduleZoneAlarm() {
+    let earliest = null;
+    for (const ws of this.state.getWebSockets()) {
+      const a = ws.deserializeAttachment();
+      if (!a || a.status !== PLAYER_STATUS.CANDIDATE) continue;
+      if (a.candidateSince == null || !a.currentZoneId) continue;
+      const zone = getZone(a.currentZoneId);
+      if (!zone) continue;
+      const deadline = a.candidateSince + zone.holdMs;
+      if (earliest == null || deadline < earliest) earliest = deadline;
+    }
+    if (earliest != null) {
+      // Add 5ms slack to avoid a busy retry exactly on the boundary.
+      await this.state.storage.setAlarm(earliest + 5);
+    } else {
+      await this.state.storage.deleteAlarm();
+    }
+  }
+
+  _broadcastZoneState(zoneId) {
+    const zone = getZone(zoneId);
+    if (!zone) return;
+    let count = 0;
+    let ready = 0;
+    for (const ws of this.state.getWebSockets()) {
+      const a = ws.deserializeAttachment();
+      if (!a || a.currentZoneId !== zoneId) continue;
+      count += 1;
+      if (a.status === PLAYER_STATUS.INTENT_READY) ready += 1;
+    }
+    this._broadcast({
+      t: 'zone_state',
+      d: { zoneId, count, ready, minPlayers: zone.minPlayers, maxPlayers: zone.maxPlayers },
+    });
+  }
+
+  _sendZoneProgress(ws, snap, now) {
+    if (!snap.currentZoneId || snap.candidateSince == null) {
+      this._send(ws, { t: 'zone_progress', d: { zoneId: null } });
+      return;
+    }
+    const zone = getZone(snap.currentZoneId);
+    if (!zone) return;
+    this._send(ws, {
+      t: 'zone_progress',
+      d: {
+        zoneId: snap.currentZoneId,
+        candidateSince: snap.candidateSince,
+        holdMs: zone.holdMs,
+        ready: snap.status === PLAYER_STATUS.INTENT_READY,
+        serverNow: now,
+      },
+    });
   }
 
   async _handleChat(ws, attach, d) {
