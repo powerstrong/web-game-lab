@@ -44,6 +44,13 @@
   const reactionBar = document.getElementById('reaction-bar');
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
+  const matchModal = document.getElementById('match-modal');
+  const matchTitle = document.getElementById('match-title');
+  const matchStatus = document.getElementById('match-status');
+  const matchMembers = document.getElementById('match-members');
+  const matchAcceptBtn = document.getElementById('match-accept');
+  const matchDeclineBtn = document.getElementById('match-decline');
+  const matchCountdown = document.getElementById('match-countdown');
 
   worldIdLabel.textContent = LOUNGE_ID;
 
@@ -103,6 +110,10 @@
   // Per-player ephemeral overlays. Keyed by player id.
   const bubbles = new Map();    // id -> { text, until }
   const reactions = new Map();  // id -> { glyph, until }
+
+  // Active match proposal awaiting our response.
+  let activeProposal = null; // { matchId, gameId, title, members, deadline, responded }
+  let matchCountdownTimer = null;
 
   // ── Picker UI ───────────────────────────────────────────────────────────────
   function buildPicker() {
@@ -204,6 +215,9 @@
       case 'reaction': return handleReaction(env.d);
       case 'zone_state': return handleZoneState(env.d);
       case 'zone_progress': return handleZoneProgress(env.d);
+      case 'match_proposal': return handleMatchProposal(env.d);
+      case 'match_confirmed': return handleMatchConfirmed(env.d);
+      case 'match_cancelled': return handleMatchCancelled(env.d);
       default:
         // Quietly ignore unknown types so future server messages don't break us.
         return;
@@ -239,6 +253,7 @@
 
     buildReactionBar();
     bindChatForm();
+    bindMatchModal();
 
     startHeartbeat();
     startRenderLoop();
@@ -255,6 +270,11 @@
       btn.addEventListener('click', () => sendReaction(r.key));
       reactionBar.appendChild(btn);
     }
+  }
+
+  function bindMatchModal() {
+    matchAcceptBtn.addEventListener('click', () => respondToMatch(true));
+    matchDeclineBtn.addEventListener('click', () => respondToMatch(false));
   }
 
   function bindChatForm() {
@@ -329,6 +349,123 @@
       minPlayers: numOr(d.minPlayers, 1),
       maxPlayers: numOr(d.maxPlayers, 99),
     });
+  }
+
+  function handleMatchProposal(d) {
+    if (!d?.matchId || !Array.isArray(d.players)) return;
+    activeProposal = {
+      matchId: d.matchId,
+      gameId: d.gameId,
+      title: d.title || d.gameId,
+      members: d.players,
+      deadline: numOr(d.deadline, Date.now() + 7000),
+      responded: null,
+    };
+    openMatchModal();
+  }
+
+  function handleMatchConfirmed(d) {
+    if (!d?.matchId) return;
+    if (!activeProposal || activeProposal.matchId !== d.matchId) return;
+    matchStatus.textContent = '확정됨 — 잠시 후 게임이 시작됩니다.';
+    matchAcceptBtn.disabled = true;
+    matchDeclineBtn.disabled = true;
+    setMemberStatuses(d.accepted || [], d.declined || []);
+    stopMatchCountdown();
+    matchCountdown.textContent = '';
+    // The actual redirect to the game URL is wired in a later commit.
+    // For now we just keep the modal informing the user.
+  }
+
+  function handleMatchCancelled(d) {
+    if (!d?.matchId) return;
+    if (!activeProposal || activeProposal.matchId !== d.matchId) {
+      // Could be a stale message; close any modal anyway if it matches our id.
+      return;
+    }
+    const reasonText = ({
+      declined: '다른 플레이어가 매칭을 취소했습니다.',
+      timeout: '시간 초과로 매칭이 취소되었습니다.',
+      invalid: '매칭이 취소되었습니다.',
+    })[d.reason] || '매칭이 취소되었습니다.';
+    matchStatus.textContent = reasonText;
+    matchAcceptBtn.disabled = true;
+    matchDeclineBtn.disabled = true;
+    matchCountdown.textContent = '';
+    stopMatchCountdown();
+    setTimeout(closeMatchModal, 1200);
+  }
+
+  function openMatchModal() {
+    if (!activeProposal) return;
+    matchTitle.textContent = activeProposal.title;
+    matchStatus.textContent = '참가하시겠어요?';
+    matchAcceptBtn.disabled = false;
+    matchDeclineBtn.disabled = false;
+    matchMembers.innerHTML = '';
+    for (const m of activeProposal.members) {
+      const li = document.createElement('li');
+      if (me && m.id === me.id) li.classList.add('is-self');
+      li.dataset.id = m.id;
+      const glyph = document.createElement('span');
+      glyph.className = 'glyph';
+      glyph.textContent = characterEmoji(m.characterId);
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = m.name || '익명';
+      li.append(glyph, name);
+      matchMembers.appendChild(li);
+    }
+    matchModal.classList.remove('hidden');
+    matchModal.setAttribute('aria-hidden', 'false');
+    startMatchCountdown();
+  }
+
+  function closeMatchModal() {
+    matchModal.classList.add('hidden');
+    matchModal.setAttribute('aria-hidden', 'true');
+    stopMatchCountdown();
+    activeProposal = null;
+  }
+
+  function setMemberStatuses(accepted, declined) {
+    const a = new Set(accepted), dc = new Set(declined);
+    for (const li of matchMembers.children) {
+      li.classList.remove('accepted', 'declined');
+      if (a.has(li.dataset.id)) li.classList.add('accepted');
+      if (dc.has(li.dataset.id)) li.classList.add('declined');
+    }
+  }
+
+  function startMatchCountdown() {
+    stopMatchCountdown();
+    const tick = () => {
+      if (!activeProposal) return;
+      const remain = Math.max(0, activeProposal.deadline - Date.now());
+      matchCountdown.textContent = `${(remain / 1000).toFixed(1)}초 남음`;
+      if (remain <= 0) {
+        // Auto-decline on timeout (matches server behavior).
+        respondToMatch(false);
+      }
+    };
+    tick();
+    matchCountdownTimer = setInterval(tick, 100);
+  }
+
+  function stopMatchCountdown() {
+    if (matchCountdownTimer) {
+      clearInterval(matchCountdownTimer);
+      matchCountdownTimer = null;
+    }
+  }
+
+  function respondToMatch(accept) {
+    if (!activeProposal || activeProposal.responded != null) return;
+    activeProposal.responded = !!accept;
+    matchAcceptBtn.disabled = true;
+    matchDeclineBtn.disabled = true;
+    matchStatus.textContent = accept ? '참가 의사 전송 — 다른 플레이어 응답 대기...' : '취소를 보내는 중...';
+    send({ t: 'match_response', d: { matchId: activeProposal.matchId, accept: !!accept } });
   }
 
   function handleZoneProgress(d) {

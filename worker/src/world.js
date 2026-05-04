@@ -14,7 +14,7 @@
 
 import { GAME_ZONES, getZone, findZoneAt } from './worldZones.js';
 import { CHARACTERS, isValidCharacterId, randomCharacterId } from './characters.js';
-import { applyZonePresence, PLAYER_STATUS } from './matcher.js';
+import { applyZonePresence, tryFormMatch, resolveProposal, PLAYER_STATUS } from './matcher.js';
 
 const PROTOCOL_VERSION = 1;
 const MAX_NAME_LEN = 16;
@@ -37,6 +37,14 @@ const CHAT_THROTTLE_MS = 800;
 const REACTION_THROTTLE_MS = 1500;
 const VALID_REACTIONS = new Set(['wave', 'heart', 'lol', 'wow', 'party', 'sleep']);
 
+// Match proposal lifetime — every member must accept before this deadline
+// passes. Single decline cancels immediately.
+const PROPOSAL_TIMEOUT_MS = 7000;
+
+function newMatchId() {
+  return 'wm-' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+}
+
 function safeName(raw) {
   if (typeof raw !== 'string') return null;
   const trimmed = raw.trim().slice(0, MAX_NAME_LEN);
@@ -52,6 +60,26 @@ export class WorldChannel {
     this.state = state;
     this.env = env;
     this.loungeId = null;
+    // Active match proposals. Memory-only — proposals are short-lived (7s) and
+    // tied to live WebSocket sessions which can't survive hibernation anyway.
+    this.proposals = new Map();
+
+    // Hibernation wake-up cleanup: WebSocket attachments survive but in-memory
+    // proposals do not. Demote any orphan PROPOSED player to ROAM so they can
+    // rejoin matching — applyZonePresence refuses to transition PROPOSED.
+    this.state.blockConcurrencyWhile(async () => {
+      for (const ws of this.state.getWebSockets()) {
+        const a = ws.deserializeAttachment();
+        if (a?.status === PLAYER_STATUS.PROPOSED) {
+          ws.serializeAttachment({
+            ...a,
+            status: PLAYER_STATUS.ROAM,
+            currentZoneId: null,
+            candidateSince: null,
+          });
+        }
+      }
+    });
   }
 
   async fetch(request) {
@@ -111,6 +139,8 @@ export class WorldChannel {
         return this._handleChat(ws, attach, d);
       case 'reaction':
         return this._handleReaction(ws, attach, d);
+      case 'match_response':
+        return this._handleMatchResponse(ws, attach, d);
       case 'pong':
         ws.serializeAttachment({ ...attach, lastHeartbeat: Date.now() });
         return;
@@ -121,16 +151,26 @@ export class WorldChannel {
 
   async webSocketClose(ws) {
     const attach = ws.deserializeAttachment() || {};
-    if (attach.sessionId) {
-      this._broadcast({ t: 'player_left', d: { id: attach.sessionId } }, ws);
-      // If this player was sitting in a zone, the count must update for others.
-      if (attach.currentZoneId) {
-        // Mark them as gone before recomputing counts.
-        ws.serializeAttachment({ ...attach, status: PLAYER_STATUS.ROAM, currentZoneId: null, candidateSince: null });
-        this._broadcastZoneState(attach.currentZoneId);
-        await this._scheduleZoneAlarm();
+    if (!attach.sessionId) return;
+
+    this._broadcast({ t: 'player_left', d: { id: attach.sessionId } }, ws);
+
+    // If this player was a member of any open proposal, cancel it now.
+    // Otherwise the proposal stalls until timeout, and a partial-launch could
+    // happen if remaining members all accept (resolveProposal doesn't know
+    // the disconnected member is gone).
+    for (const proposal of [...this.proposals.values()]) {
+      if (proposal.players.includes(attach.sessionId)) {
+        this._cancelProposal(proposal, 'declined');
       }
     }
+
+    // If this player was sitting in a zone, the count must update for others.
+    if (attach.currentZoneId) {
+      ws.serializeAttachment({ ...attach, status: PLAYER_STATUS.ROAM, currentZoneId: null, candidateSince: null });
+      this._broadcastZoneState(attach.currentZoneId);
+    }
+    await this._scheduleZoneAlarm();
   }
 
   async webSocketError(ws) {
@@ -265,7 +305,10 @@ export class WorldChannel {
       // Broadcast updated counts for any zone that gained or lost this player.
       const affected = new Set([prevSnap.currentZoneId, nextSnap.currentZoneId].filter(Boolean));
       for (const zoneId of affected) this._broadcastZoneState(zoneId);
-      // Schedule alarm if a new candidate is dwelling.
+      // A move can land directly on intent_ready if dwell already elapsed.
+      if (nextSnap.status === PLAYER_STATUS.INTENT_READY) {
+        await this._tryFormMatches(now);
+      }
       await this._scheduleZoneAlarm();
     }
   }
@@ -301,6 +344,13 @@ export class WorldChannel {
       if (next.currentZoneId) affectedZones.add(next.currentZoneId);
     }
     for (const zoneId of affectedZones) this._broadcastZoneState(zoneId);
+    // Resolve any proposals that hit their deadline.
+    for (const proposal of [...this.proposals.values()]) {
+      await this._resolveOrTickProposal(proposal);
+    }
+    // After possibly promoting candidates to intent_ready, see if any zone
+    // can form a match.
+    await this._tryFormMatches(now);
     await this._scheduleZoneAlarm();
   }
 
@@ -315,12 +365,165 @@ export class WorldChannel {
       const deadline = a.candidateSince + zone.holdMs;
       if (earliest == null || deadline < earliest) earliest = deadline;
     }
+    // Proposal expiry deadlines also need an alarm.
+    for (const p of this.proposals.values()) {
+      if (earliest == null || p.deadline < earliest) earliest = p.deadline;
+    }
     if (earliest != null) {
       // Add 5ms slack to avoid a busy retry exactly on the boundary.
       await this.state.storage.setAlarm(earliest + 5);
     } else {
       await this.state.storage.deleteAlarm();
     }
+  }
+
+  // ── Match proposal lifecycle ────────────────────────────────────────────────
+
+  /* For each zone, if there's no live proposal already and intent_ready
+   * players meet minPlayers, form a single new proposal. We never form two
+   * concurrent proposals for the same zone — the existing one must resolve
+   * (launch or cancel) before a new batch is considered.
+   */
+  async _tryFormMatches(now) {
+    for (const zone of GAME_ZONES) {
+      const hasOpenProposal = [...this.proposals.values()].some((p) => p.zoneId === zone.id);
+      if (hasOpenProposal) continue;
+
+      const players = this._collectPlayers();
+      const formed = tryFormMatch(players, zone);
+      if (!formed) continue;
+
+      const matchId = newMatchId();
+      const deadline = now + PROPOSAL_TIMEOUT_MS;
+      const memberInfo = [];
+
+      for (const ws of this.state.getWebSockets()) {
+        const a = ws.deserializeAttachment();
+        if (!a?.sessionId || !formed.players.includes(a.sessionId)) continue;
+        ws.serializeAttachment({
+          ...a,
+          status: PLAYER_STATUS.PROPOSED,
+          // Keep currentZoneId so cancel can restore them as candidate.
+        });
+        memberInfo.push({ id: a.sessionId, name: a.name, characterId: a.characterId });
+      }
+
+      this.proposals.set(matchId, {
+        matchId,
+        zoneId: zone.id,
+        gameId: zone.gameId,
+        players: [...formed.players],
+        members: memberInfo,
+        accepted: [],
+        declined: [],
+        deadline,
+      });
+
+      const proposalMsg = {
+        t: 'match_proposal',
+        d: {
+          matchId, zoneId: zone.id, gameId: zone.gameId,
+          title: zone.title, players: memberInfo, deadline,
+        },
+      };
+      for (const ws of this.state.getWebSockets()) {
+        const a = ws.deserializeAttachment();
+        if (!a?.sessionId || !formed.players.includes(a.sessionId)) continue;
+        this._send(ws, proposalMsg);
+      }
+
+      // Other zone watchers should see the count change.
+      this._broadcastZoneState(zone.id);
+    }
+  }
+
+  async _handleMatchResponse(ws, attach, d) {
+    if (!attach.sessionId) return;
+    const matchId = typeof d?.matchId === 'string' ? d.matchId : null;
+    const accept = !!d?.accept;
+    if (!matchId) return;
+
+    const proposal = this.proposals.get(matchId);
+    if (!proposal) return; // unknown / already resolved
+    if (!proposal.players.includes(attach.sessionId)) return; // outsider
+
+    if (proposal.accepted.includes(attach.sessionId) ||
+        proposal.declined.includes(attach.sessionId)) return; // already responded
+
+    if (accept) proposal.accepted.push(attach.sessionId);
+    else proposal.declined.push(attach.sessionId);
+
+    await this._resolveOrTickProposal(proposal);
+  }
+
+  async _resolveOrTickProposal(proposal) {
+    const now = Date.now();
+    const result = resolveProposal(proposal, now);
+    if (result.kind === 'pending') return;
+    if (result.kind === 'cancel') return this._cancelProposal(proposal, result.reason);
+    if (result.kind === 'launch') return this._launchProposal(proposal);
+  }
+
+  _cancelProposal(proposal, reason) {
+    if (!this.proposals.has(proposal.matchId)) return;
+    const now = Date.now();
+
+    for (const ws of this.state.getWebSockets()) {
+      const a = ws.deserializeAttachment();
+      if (!a?.sessionId || !proposal.players.includes(a.sessionId)) continue;
+
+      // Player's recorded currentZoneId was frozen at propose time. Recompute
+      // from their actual position so a player who walked out while proposed
+      // doesn't get requeued in a zone they're no longer standing in.
+      const zoneNow = findZoneAt(a.x ?? SPAWN_POINT.x, a.y ?? SPAWN_POINT.y);
+      const cleared = {
+        status: PLAYER_STATUS.ROAM,
+        currentZoneId: null,
+        candidateSince: null,
+      };
+      // applyZonePresence on a clean snapshot makes them CANDIDATE again with
+      // a fresh dwell timer if still in some zone, otherwise leaves them ROAM.
+      const next = applyZonePresence(cleared, zoneNow, now);
+
+      ws.serializeAttachment({
+        ...a,
+        status: next.status,
+        currentZoneId: next.currentZoneId,
+        candidateSince: next.candidateSince,
+      });
+      this._send(ws, { t: 'match_cancelled', d: { matchId: proposal.matchId, reason } });
+      this._sendZoneProgress(ws, next, now);
+    }
+
+    this.proposals.delete(proposal.matchId);
+    this._broadcastZoneState(proposal.zoneId);
+  }
+
+  _launchProposal(proposal) {
+    if (!this.proposals.has(proposal.matchId)) return;
+    // Mark members as IN_GAME and broadcast confirmation. The actual jump to
+    // the game URL is wired in a later commit (GameRoom seed + go_to_game).
+    for (const ws of this.state.getWebSockets()) {
+      const a = ws.deserializeAttachment();
+      if (!a?.sessionId || !proposal.players.includes(a.sessionId)) continue;
+      ws.serializeAttachment({
+        ...a,
+        status: PLAYER_STATUS.IN_GAME,
+        currentZoneId: null,
+        candidateSince: null,
+      });
+      this._send(ws, {
+        t: 'match_confirmed',
+        d: {
+          matchId: proposal.matchId,
+          gameId: proposal.gameId,
+          accepted: proposal.accepted,
+          declined: proposal.declined,
+        },
+      });
+    }
+    this.proposals.delete(proposal.matchId);
+    this._broadcastZoneState(proposal.zoneId);
   }
 
   _broadcastZoneState(zoneId) {
