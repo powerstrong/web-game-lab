@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>월드채널 베타 — 텐텐오락실</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Lobby (pre-join) -->
+    <section id="join-panel" class="panel">
+      <h1>월드채널 베타</h1>
+      <p class="subtitle">캐릭터를 골라서 광장에 입장하세요.</p>
+
+      <label class="field">
+        <span>닉네임</span>
+        <input id="name-input" type="text" maxlength="16" autocomplete="off" placeholder="최대 16자" />
+      </label>
+
+      <fieldset class="field">
+        <legend>캐릭터</legend>
+        <div id="character-picker" class="character-picker"></div>
+      </fieldset>
+
+      <button id="join-btn" type="button" disabled>광장 입장</button>
+      <p id="join-status" class="status"></p>
+    </section>
+
+    <!-- World (post-join) -->
+    <section id="world-panel" class="panel hidden">
+      <header class="world-header">
+        <span id="world-id-label">lounge-1</span>
+        <span id="conn-status" class="conn ok">연결됨</span>
+      </header>
+      <div class="canvas-wrap">
+        <canvas id="world-canvas" width="960" height="540"></canvas>
+      </div>
+      <p class="hint">방향키 또는 WASD로 이동 (이번 커밋은 본인 화면에서만 보입니다)</p>
+    </section>
+  </div>
+
+  <script src="./config.js"></script>
+  <script src="/shared/character_sprites.js"></script>
+  <script src="/shared/input.js"></script>
+  <script src="./world.js"></script>
+</body>
+</html>
