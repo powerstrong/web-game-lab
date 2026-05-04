@@ -22,6 +22,15 @@ const HEARTBEAT_TIMEOUT_MS = 30_000;
 const WORLD_BOUNDS = { width: 960, height: 540 };
 const SPAWN_POINT = { x: 480, y: 460 };
 
+// Movement validation. Server is authoritative on bounds and direction.
+// Speed cheat-prevention is a soft check: positions are clamped to bounds
+// and impossibly large jumps within MOVE_THROTTLE_MS are rejected with
+// a correction. Stricter physics validation is a future hardening pass.
+const MOVE_SPEED = 180;          // px/sec, must match client world.js
+const MOVE_THROTTLE_MS = 40;      // server drops moves arriving faster than this
+const MAX_JUMP_PX = 80;           // hard ceiling per accepted move (rejects teleports)
+const VALID_DIRS = new Set(['up', 'down', 'left', 'right']);
+
 function safeName(raw) {
   if (typeof raw !== 'string') return null;
   const trimmed = raw.trim().slice(0, MAX_NAME_LEN);
@@ -90,6 +99,8 @@ export class WorldChannel {
     switch (t) {
       case 'join_world':
         return this._handleJoin(ws, attach, d);
+      case 'move':
+        return this._handleMove(ws, attach, d);
       case 'pong':
         ws.serializeAttachment({ ...attach, lastHeartbeat: Date.now() });
         return;
@@ -135,7 +146,14 @@ export class WorldChannel {
       candidateSince: null,
     };
 
-    ws.serializeAttachment({ ...attach, sessionId, name, characterId });
+    ws.serializeAttachment({
+      ...attach,
+      sessionId, name, characterId,
+      x: me.x, y: me.y, dir: me.dir, moving: me.moving,
+      status: me.status, currentZoneId: me.currentZoneId,
+      candidateSince: me.candidateSince,
+      lastMoveAt: 0,
+    });
 
     const peers = this._collectPlayers().filter((p) => p.id !== sessionId);
     this._send(ws, {
@@ -155,6 +173,48 @@ export class WorldChannel {
     });
 
     this._broadcast({ t: 'player_joined', d: { player: me } }, ws);
+  }
+
+  async _handleMove(ws, attach, d) {
+    if (!attach.sessionId) return; // not joined yet — silently ignore
+
+    const now = Date.now();
+    const lastMoveAt = attach.lastMoveAt || 0;
+
+    const x = Number(d?.x), y = Number(d?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+
+    const dir = VALID_DIRS.has(d?.dir) ? d.dir : (attach.dir ?? 'down');
+    const moving = !!d?.moving;
+
+    // Throttle motion bursts but never drop a stop transition — peers must
+    // see moving:false promptly or they'll render this player walking forever.
+    const isStopTransition = !moving && !!attach.moving;
+    if (!isStopTransition && now - lastMoveAt < MOVE_THROTTLE_MS) return;
+
+    // Clamp to bounds.
+    const cx = clamp(x, 16, WORLD_BOUNDS.width  - 16);
+    const cy = clamp(y, 16, WORLD_BOUNDS.height - 16);
+
+    // Reject obvious teleports (since-last-accepted distance).
+    const px = attach.x ?? SPAWN_POINT.x;
+    const py = attach.y ?? SPAWN_POINT.y;
+    const dist = Math.hypot(cx - px, cy - py);
+    if (dist > MAX_JUMP_PX) {
+      // Send a correction so the cheat-attempting client snaps back.
+      this._send(ws, { t: 'tick', d: { players: [{ id: attach.sessionId, x: px, y: py, dir, moving: false }], at: now } });
+      return;
+    }
+
+    ws.serializeAttachment({
+      ...attach,
+      x: cx, y: cy, dir, moving, lastMoveAt: now,
+    });
+
+    this._broadcast({
+      t: 'tick',
+      d: { players: [{ id: attach.sessionId, x: cx, y: cy, dir, moving }], at: now },
+    }, ws);
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -196,3 +256,5 @@ export class WorldChannel {
     }
   }
 }
+
+function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }

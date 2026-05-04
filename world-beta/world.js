@@ -67,10 +67,13 @@
   // ── World state ─────────────────────────────────────────────────────────────
   let ws = null;
   let me = null;        // { id, name, characterId, x, y, dir, moving }
+  let peers = new Map(); // id -> { id, name, characterId, x, y, dir, moving }
   let bounds = { width: canvas.width, height: canvas.height };
   let lastFrameAt = 0;
   let heartbeatTimer = null;
   let rafHandle = null;
+  let lastMoveSentAt = 0;
+  let lastSentSnap = null; // { x, y, dir, moving } — last move we actually sent
 
   // ── Picker UI ───────────────────────────────────────────────────────────────
   function buildPicker() {
@@ -165,10 +168,9 @@
     switch (env.t) {
       case 'welcome': return handleWelcome(env.d);
       case 'error': return handleServerError(env.d);
-      case 'player_joined':
-      case 'player_left':
-        // Ignored in this commit — Commit 4 will render peers.
-        return;
+      case 'player_joined': return handlePlayerJoined(env.d);
+      case 'player_left': return handlePlayerLeft(env.d);
+      case 'tick': return handleTick(env.d);
       default:
         // Quietly ignore unknown types so future server messages don't break us.
         return;
@@ -182,6 +184,13 @@
     canvas.width = bounds.width;
     canvas.height = bounds.height;
 
+    peers = new Map();
+    if (Array.isArray(d.players)) {
+      for (const p of d.players) {
+        if (p && p.id && p.id !== me.id) peers.set(p.id, { ...p });
+      }
+    }
+
     joinPanel.classList.add('hidden');
     worldPanel.classList.remove('hidden');
     setConnStatus(true);
@@ -189,6 +198,42 @@
     startHeartbeat();
     startRenderLoop();
   }
+
+  function handlePlayerJoined(d) {
+    const p = d?.player;
+    if (!p || !p.id || (me && p.id === me.id)) return;
+    peers.set(p.id, { ...p });
+  }
+
+  function handlePlayerLeft(d) {
+    if (d?.id) peers.delete(d.id);
+  }
+
+  function handleTick(d) {
+    const updates = Array.isArray(d?.players) ? d.players : [];
+    for (const u of updates) {
+      if (!u || !u.id) continue;
+      // Server may send a correction for self when it rejects a move.
+      if (me && u.id === me.id) {
+        me.x = numOr(u.x, me.x);
+        me.y = numOr(u.y, me.y);
+        me.dir = u.dir || me.dir;
+        me.moving = !!u.moving;
+        continue;
+      }
+      const existing = peers.get(u.id);
+      if (existing) {
+        existing.x = numOr(u.x, existing.x);
+        existing.y = numOr(u.y, existing.y);
+        existing.dir = u.dir || existing.dir;
+        existing.moving = !!u.moving;
+      }
+      // If we receive a tick for an unknown id, it'll arrive via player_joined
+      // in normal flow. Ignore otherwise — no point creating a phantom.
+    }
+  }
+
+  function numOr(v, fallback) { return Number.isFinite(v) ? v : fallback; }
 
   function handleServerError(d) {
     const msg = d?.message || '서버 오류';
@@ -270,6 +315,28 @@
       me.y = clamp(me.y + vy, 16, bounds.height - 16);
       me.dir = pickDirection(dx, dy, me.dir);
     }
+
+    maybeSendMove();
+  }
+
+  function maybeSendMove() {
+    if (!me) return;
+    const now = performance.now();
+    // Throttle to 50ms while moving. Always send a final stationary snapshot
+    // when the moving flag goes false so peers don't see us "stuck walking".
+    const snap = { x: Math.round(me.x), y: Math.round(me.y), dir: me.dir, moving: me.moving };
+    const stoppedSinceLast = lastSentSnap && lastSentSnap.moving && !snap.moving;
+    if (!stoppedSinceLast && now - lastMoveSentAt < 50) return;
+
+    if (lastSentSnap &&
+        lastSentSnap.x === snap.x && lastSentSnap.y === snap.y &&
+        lastSentSnap.dir === snap.dir && lastSentSnap.moving === snap.moving) {
+      return; // nothing changed
+    }
+
+    send({ t: 'move', d: snap });
+    lastSentSnap = snap;
+    lastMoveSentAt = now;
   }
 
   function pickDirection(dx, dy, prev) {
@@ -292,6 +359,8 @@
       ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(canvas.width, y + 0.5); ctx.stroke();
     }
 
+    // Draw peers behind me so my avatar sits on top when overlapping.
+    for (const p of peers.values()) drawAvatar(p, /* isYou */ false);
     if (me) drawAvatar(me, /* isYou */ true);
   }
 
