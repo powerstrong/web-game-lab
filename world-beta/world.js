@@ -18,6 +18,18 @@
   const MOVE_SPEED = 180; // px/sec
   const LOUNGE_ID = readLoungeId();
 
+  const CHAT_BUBBLE_MS = 5000;
+  const REACTION_MS = 1500;
+  const REACTIONS = [
+    { key: 'wave',  glyph: '👋' },
+    { key: 'heart', glyph: '❤️' },
+    { key: 'lol',   glyph: '😂' },
+    { key: 'wow',   glyph: '😮' },
+    { key: 'party', glyph: '🎉' },
+    { key: 'sleep', glyph: '😴' },
+  ];
+  const REACTION_GLYPHS = Object.fromEntries(REACTIONS.map((r) => [r.key, r.glyph]));
+
   // ── DOM references ──────────────────────────────────────────────────────────
   const joinPanel = document.getElementById('join-panel');
   const worldPanel = document.getElementById('world-panel');
@@ -29,13 +41,22 @@
   const worldIdLabel = document.getElementById('world-id-label');
   const canvas = document.getElementById('world-canvas');
   const ctx = canvas.getContext('2d');
+  const reactionBar = document.getElementById('reaction-bar');
+  const chatForm = document.getElementById('chat-form');
+  const chatInput = document.getElementById('chat-input');
 
   worldIdLabel.textContent = LOUNGE_ID;
 
   // shared/input.js only binds arrow keys. Add WASD locally so this page
   // matches the on-screen hint without touching shared input used by games.
   const wasd = { up: false, down: false, left: false, right: false };
+  function isTypingTarget(t) {
+    if (!t) return false;
+    const tag = t.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
+  }
   window.addEventListener('keydown', (e) => {
+    if (isTypingTarget(e.target)) return;
     const k = e.key.toLowerCase();
     if (k === 'w') { wasd.up    = true; e.preventDefault(); }
     if (k === 's') { wasd.down  = true; e.preventDefault(); }
@@ -43,6 +64,7 @@
     if (k === 'd') { wasd.right = true; e.preventDefault(); }
   });
   window.addEventListener('keyup', (e) => {
+    if (isTypingTarget(e.target)) return;
     const k = e.key.toLowerCase();
     if (k === 'w') wasd.up    = false;
     if (k === 's') wasd.down  = false;
@@ -74,6 +96,10 @@
   let rafHandle = null;
   let lastMoveSentAt = 0;
   let lastSentSnap = null; // { x, y, dir, moving } — last move we actually sent
+
+  // Per-player ephemeral overlays. Keyed by player id.
+  const bubbles = new Map();    // id -> { text, until }
+  const reactions = new Map();  // id -> { glyph, until }
 
   // ── Picker UI ───────────────────────────────────────────────────────────────
   function buildPicker() {
@@ -171,6 +197,8 @@
       case 'player_joined': return handlePlayerJoined(env.d);
       case 'player_left': return handlePlayerLeft(env.d);
       case 'tick': return handleTick(env.d);
+      case 'chat': return handleChat(env.d);
+      case 'reaction': return handleReaction(env.d);
       default:
         // Quietly ignore unknown types so future server messages don't break us.
         return;
@@ -195,8 +223,39 @@
     worldPanel.classList.remove('hidden');
     setConnStatus(true);
 
+    buildReactionBar();
+    bindChatForm();
+
     startHeartbeat();
     startRenderLoop();
+  }
+
+  function buildReactionBar() {
+    if (reactionBar.childElementCount > 0) return;
+    for (const r of REACTIONS) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.key = r.key;
+      btn.textContent = r.glyph;
+      btn.setAttribute('aria-label', `리액션 ${r.glyph}`);
+      btn.addEventListener('click', () => sendReaction(r.key));
+      reactionBar.appendChild(btn);
+    }
+  }
+
+  function bindChatForm() {
+    chatForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = chatInput.value;
+      if (!text.trim()) return;
+      send({ t: 'chat', d: { text } });
+      chatInput.value = '';
+    });
+  }
+
+  function sendReaction(key) {
+    if (!REACTION_GLYPHS[key]) return;
+    send({ t: 'reaction', d: { emoji: key } });
   }
 
   function handlePlayerJoined(d) {
@@ -206,7 +265,10 @@
   }
 
   function handlePlayerLeft(d) {
-    if (d?.id) peers.delete(d.id);
+    if (!d?.id) return;
+    peers.delete(d.id);
+    bubbles.delete(d.id);
+    reactions.delete(d.id);
   }
 
   function handleTick(d) {
@@ -234,6 +296,16 @@
   }
 
   function numOr(v, fallback) { return Number.isFinite(v) ? v : fallback; }
+
+  function handleChat(d) {
+    if (!d?.id || typeof d.text !== 'string') return;
+    bubbles.set(d.id, { text: d.text.slice(0, 120), until: performance.now() + CHAT_BUBBLE_MS });
+  }
+
+  function handleReaction(d) {
+    if (!d?.id || !REACTION_GLYPHS[d.emoji]) return;
+    reactions.set(d.id, { glyph: REACTION_GLYPHS[d.emoji], until: performance.now() + REACTION_MS });
+  }
 
   function handleServerError(d) {
     const msg = d?.message || '서버 오류';
@@ -362,6 +434,93 @@
     // Draw peers behind me so my avatar sits on top when overlapping.
     for (const p of peers.values()) drawAvatar(p, /* isYou */ false);
     if (me) drawAvatar(me, /* isYou */ true);
+
+    // Overlays on top of everything.
+    const now = performance.now();
+    drawOverlays(now);
+  }
+
+  function drawOverlays(now) {
+    const drawForPlayer = (p) => {
+      const b = bubbles.get(p.id);
+      if (b) {
+        if (b.until <= now) bubbles.delete(p.id);
+        else drawBubble(p.x, p.y, b.text, Math.min(1, (b.until - now) / 600));
+      }
+      const r = reactions.get(p.id);
+      if (r) {
+        if (r.until <= now) reactions.delete(p.id);
+        else drawReaction(p.x, p.y, r.glyph, Math.min(1, (r.until - now) / 400));
+      }
+    };
+    if (me) drawForPlayer(me);
+    for (const p of peers.values()) drawForPlayer(p);
+  }
+
+  function drawBubble(cx, cy, text, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = '13px -apple-system, system-ui, sans-serif';
+    const padX = 8, padY = 6, lineH = 16;
+    const lines = wrapText(text, 220);
+    const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + padX * 2;
+    const h = lines.length * lineH + padY * 2;
+    const top = cy - 14 - 24 - h;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    roundRect(cx - w / 2, top, w, h, 10);
+    ctx.fill();
+
+    // Tail
+    ctx.beginPath();
+    ctx.moveTo(cx - 6, top + h);
+    ctx.lineTo(cx, top + h + 8);
+    ctx.lineTo(cx + 6, top + h);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#1a1410';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    lines.forEach((line, i) => ctx.fillText(line, cx, top + padY + i * lineH));
+    ctx.restore();
+  }
+
+  function drawReaction(cx, cy, glyph, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = '24px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(glyph, cx, cy - 30);
+    ctx.restore();
+  }
+
+  function wrapText(text, maxWidth) {
+    const out = [];
+    let line = '';
+    for (const ch of text) {
+      const candidate = line + ch;
+      if (ctx.measureText(candidate).width > maxWidth && line) {
+        out.push(line);
+        line = ch;
+      } else {
+        line = candidate;
+      }
+      if (out.length >= 3) { out[2] = line; break; }
+    }
+    if (out.length < 3 && line) out.push(line);
+    return out.length ? out : [''];
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
   }
 
   function drawAvatar(p, isYou) {

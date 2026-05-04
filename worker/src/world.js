@@ -31,6 +31,11 @@ const MOVE_THROTTLE_MS = 40;      // server drops moves arriving faster than thi
 const MAX_JUMP_PX = 80;           // hard ceiling per accepted move (rejects teleports)
 const VALID_DIRS = new Set(['up', 'down', 'left', 'right']);
 
+const MAX_CHAT_LEN = 120;
+const CHAT_THROTTLE_MS = 800;
+const REACTION_THROTTLE_MS = 1500;
+const VALID_REACTIONS = new Set(['wave', 'heart', 'lol', 'wow', 'party', 'sleep']);
+
 function safeName(raw) {
   if (typeof raw !== 'string') return null;
   const trimmed = raw.trim().slice(0, MAX_NAME_LEN);
@@ -101,6 +106,10 @@ export class WorldChannel {
         return this._handleJoin(ws, attach, d);
       case 'move':
         return this._handleMove(ws, attach, d);
+      case 'chat':
+        return this._handleChat(ws, attach, d);
+      case 'reaction':
+        return this._handleReaction(ws, attach, d);
       case 'pong':
         ws.serializeAttachment({ ...attach, lastHeartbeat: Date.now() });
         return;
@@ -215,6 +224,45 @@ export class WorldChannel {
       t: 'tick',
       d: { players: [{ id: attach.sessionId, x: cx, y: cy, dir, moving }], at: now },
     }, ws);
+  }
+
+  async _handleChat(ws, attach, d) {
+    if (!attach.sessionId) return;
+
+    const now = Date.now();
+    if (now - (attach.lastChatAt || 0) < CHAT_THROTTLE_MS) {
+      return this._sendError(ws, 'RATE_LIMITED', '메시지를 너무 빠르게 보냈습니다.');
+    }
+
+    const raw = typeof d?.text === 'string' ? d.text : '';
+    const text = raw.replace(/[\r\n\t]+/g, ' ').trim().slice(0, MAX_CHAT_LEN);
+    if (!text) return;
+
+    ws.serializeAttachment({ ...attach, lastChatAt: now });
+
+    // Echo to sender too so the bubble appears reliably even if local optimistic
+    // render is skipped. Client de-dupes by id+ts if it ever needs to.
+    this._broadcast({
+      t: 'chat',
+      d: { id: attach.sessionId, name: attach.name, text, ts: now },
+    });
+  }
+
+  async _handleReaction(ws, attach, d) {
+    if (!attach.sessionId) return;
+
+    const now = Date.now();
+    if (now - (attach.lastReactionAt || 0) < REACTION_THROTTLE_MS) return;
+
+    const emoji = typeof d?.emoji === 'string' ? d.emoji : '';
+    if (!VALID_REACTIONS.has(emoji)) return;
+
+    ws.serializeAttachment({ ...attach, lastReactionAt: now });
+
+    this._broadcast({
+      t: 'reaction',
+      d: { id: attach.sessionId, emoji, ts: now },
+    });
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────

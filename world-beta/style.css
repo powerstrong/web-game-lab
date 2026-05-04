@@ -194,3 +194,56 @@ h1 {
   font-size: 0.85rem;
   text-align: center;
 }
+
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.reactions button {
+  font-size: 1.1rem;
+  background: var(--panel-2);
+  color: var(--text);
+  border: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.05s;
+  font-family: inherit;
+}
+.reactions button:hover { background: #2b3c63; }
+.reactions button:active { transform: scale(0.95); }
+.reactions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.chat-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.chat-form input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-2);
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+.chat-form input:focus { outline: none; border-color: var(--accent-2); }
+
+.chat-form button {
+  padding: 0 18px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent-2);
+  color: #0e1828;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+.chat-form button:disabled { opacity: 0.5; cursor: not-allowed; }

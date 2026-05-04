@@ -26,7 +26,17 @@ window.InputManager = (function () {
 
   // ── Keyboard ────────────────────────────────────────────────────────────────
 
+  // Don't hijack arrows/space when the user is typing in a form field.
+  function isTypingTarget(t) {
+    if (!t) return false;
+    const tag = t.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (t.isContentEditable) return true;
+    return false;
+  }
+
   window.addEventListener('keydown', e => {
+    if (isTypingTarget(e.target)) return;
     switch (e.key) {
       case 'ArrowLeft':  e.preventDefault(); held.left  = true; break;
       case 'ArrowRight': e.preventDefault(); held.right = true; break;
@@ -37,6 +47,7 @@ window.InputManager = (function () {
   });
 
   window.addEventListener('keyup', e => {
+    if (isTypingTarget(e.target)) return;
     switch (e.key) {
       case 'ArrowLeft':  held.left  = false; break;
       case 'ArrowRight': held.right = false; break;
