@@ -1,0 +1,41 @@
+/* CHARACTERS — single source of truth for the world channel.
+ *
+ * worldId is what the world channel uses internally and over the wire.
+ * gameIds maps to whatever id each prototype expects, so every game keeps its
+ * existing identifiers (jump-climber/quiz/tug already use kebab-case).
+ */
+
+window.CHARACTERS = [
+  {
+    worldId: 'latte_puppy',
+    label: '라떼강아지',
+    sheet: '/world-beta/assets/latte_puppy_sheet_3x3.png',
+    gameIds: { 'jump-climber': 'latte-puppy', 'mallang-quiz-battle': 'latte-puppy', 'mallang-tug-war': 'latte-puppy' },
+  },
+  {
+    worldId: 'mochi_rabbit',
+    label: '토끼',
+    sheet: '/world-beta/assets/mochi_rabbit_sheet_3x3.png',
+    gameIds: { 'jump-climber': 'mochi-rabbit', 'mallang-quiz-battle': 'mochi-rabbit', 'mallang-tug-war': 'mochi-rabbit' },
+  },
+  {
+    worldId: 'pudding_hamster',
+    label: '햄스터',
+    sheet: '/world-beta/assets/pudding_hamster_sheet_3x3.png',
+    gameIds: { 'jump-climber': 'pudding-hamster', 'mallang-quiz-battle': 'pudding-hamster', 'mallang-tug-war': 'pudding-hamster' },
+  },
+  {
+    worldId: 'mint_kitten',
+    label: '고양이',
+    sheet: '/world-beta/assets/mint_kitten_sheet_3x3.png',
+    gameIds: { 'jump-climber': 'mint-kitten', 'mallang-quiz-battle': 'mint-kitten', 'mallang-tug-war': 'mint-kitten' },
+  },
+  {
+    worldId: 'peach_chick',
+    label: '병아리',
+    sheet: '/world-beta/assets/peach_chick_sheet_3x3.png',
+    gameIds: { 'jump-climber': 'peach-chick', 'mallang-quiz-battle': 'peach-chick', 'mallang-tug-war': 'peach-chick' },
+  },
+];
+
+window.CHARACTER_FRAME = { width: 32, height: 32, cols: 3, rows: 3 };
