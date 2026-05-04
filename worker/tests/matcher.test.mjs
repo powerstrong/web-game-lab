@@ -1,9 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { PLAYER_STATUS, applyZonePresence, tryFormMatch, resolveProposal } from '../src/matcher.js';
+import {
+  PLAYER_STATUS, applyZonePresence, tryFormMatch, resolveProposal,
+  markProposed, markInGame, clearProposed,
+} from '../src/matcher.js';
 import { GAME_ZONES, getZone, findZoneAt, pointInRect } from '../src/worldZones.js';
-import { isValidCharacterId, toGameCharacterId } from '../src/characters.js';
+import { CHARACTERS, isValidCharacterId, toGameCharacterId, pickGameCharacter } from '../src/characters.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const HOLD = 3000;
 const JUMP = getZone('jump-climber');
@@ -189,4 +197,136 @@ test('character ids round-trip world → game', () => {
   assert.equal(toGameCharacterId('mint_kitten', 'mallang-quiz-battle'), 'mint-kitten');
   assert.equal(toGameCharacterId('peach_chick', 'mallang-tug-war'), 'peach-chick');
   assert.equal(toGameCharacterId('not_a_thing', 'jump-climber'), null);
+});
+
+test('tug-war does not silently support unsupported avatars', () => {
+  assert.equal(toGameCharacterId('latte_puppy', 'mallang-tug-war'), null);
+  assert.equal(toGameCharacterId('mint_kitten', 'mallang-tug-war'), null);
+});
+
+test('pickGameCharacter falls back deterministically when avatar is unsupported', () => {
+  const a = pickGameCharacter('latte_puppy', 'mallang-tug-war');
+  const b = pickGameCharacter('latte_puppy', 'mallang-tug-war');
+  assert.equal(a.worldId, b.worldId);
+  assert.ok(['mochi_rabbit', 'pudding_hamster', 'peach_chick'].includes(a.worldId));
+  assert.ok(['mochi-rabbit', 'pudding-hamster', 'peach-chick'].includes(a.gameCharacterId));
+
+  // supported avatar passes through unchanged
+  const direct = pickGameCharacter('mochi_rabbit', 'mallang-tug-war');
+  assert.deepEqual(direct, { worldId: 'mochi_rabbit', gameCharacterId: 'mochi-rabbit' });
+});
+
+test('catalogs are frozen so accidental mutation cannot drift', () => {
+  assert.ok(Object.isFrozen(CHARACTERS));
+  assert.ok(Object.isFrozen(CHARACTERS[0]));
+  assert.ok(Object.isFrozen(CHARACTERS[0].gameIds));
+});
+
+test('shared/character_sprites.js worldIds match worker/src/characters.js', () => {
+  const sharedSrc = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'shared', 'character_sprites.js'),
+    'utf8'
+  );
+  const worldIdsInShared = [...sharedSrc.matchAll(/worldId:\s*'([^']+)'/g)].map((m) => m[1]);
+  const worldIdsInServer = CHARACTERS.map((c) => c.worldId);
+  assert.deepEqual(worldIdsInShared, worldIdsInServer);
+
+  // tug-war null entries must match too
+  const sharedTugNulls = [...sharedSrc.matchAll(/'mallang-tug-war':\s*null/g)].length;
+  const serverTugNulls = CHARACTERS.filter((c) => c.gameIds['mallang-tug-war'] == null).length;
+  assert.equal(sharedTugNulls, serverTugNulls);
+});
+
+// ── stale-state healing ─────────────────────────────────────────────────────
+
+test('stale state with status=roam but currentZoneId set is healed', () => {
+  const stale = { id: 'a', status: PLAYER_STATUS.ROAM, currentZoneId: JUMP.id, candidateSince: null };
+  const healed = applyZonePresence(stale, JUMP, 1000, HOLD);
+  assert.equal(healed.status, PLAYER_STATUS.CANDIDATE);
+  assert.equal(healed.candidateSince, 1000);
+});
+
+test('candidate with null candidateSince is healed (does not freeze)', () => {
+  const stale = { id: 'a', status: PLAYER_STATUS.CANDIDATE, currentZoneId: JUMP.id, candidateSince: null };
+  const t1 = applyZonePresence(stale, JUMP, 1000, HOLD);
+  assert.equal(t1.candidateSince, 1000);
+  const t2 = applyZonePresence(t1, JUMP, 4000, HOLD);
+  assert.equal(t2.status, PLAYER_STATUS.INTENT_READY);
+});
+
+test('applyZonePresence honors zone.holdMs when override is omitted', () => {
+  const fastZone = { ...JUMP, holdMs: 500 };
+  const at0 = applyZonePresence(fresh('a'), fastZone, 0);
+  const at500 = applyZonePresence(at0, fastZone, 500);
+  assert.equal(at500.status, PLAYER_STATUS.INTENT_READY);
+});
+
+// ── resolveProposal hardening ───────────────────────────────────────────────
+
+test('empty proposal cancels as invalid (no vacuous launch)', () => {
+  const r = resolveProposal({ players: [], accepted: [], declined: [], deadline: 100 }, 0);
+  assert.equal(r.kind, 'cancel');
+  assert.equal(r.reason, 'invalid');
+});
+
+test('decline from a non-member is ignored', () => {
+  const r = resolveProposal(
+    { players: ['a', 'b'], accepted: ['a', 'b'], declined: ['outsider'], deadline: 1000 },
+    100
+  );
+  assert.equal(r.kind, 'launch');
+  assert.deepEqual(r.players, ['a', 'b']);
+});
+
+test('accept from a non-member does not count toward all-accepted', () => {
+  const r = resolveProposal(
+    { players: ['a', 'b'], accepted: ['a', 'outsider'], declined: [], deadline: 1000 },
+    500
+  );
+  assert.equal(r.kind, 'pending');
+});
+
+test('all accepts after deadline times out (deadline-first)', () => {
+  const r = resolveProposal(
+    { players: ['a', 'b'], accepted: [], declined: [], deadline: 100 },
+    200
+  );
+  assert.equal(r.kind, 'cancel');
+  assert.equal(r.reason, 'timeout');
+});
+
+test('all accepts before deadline launches even if resolved later', () => {
+  // accepts collected by time 50, deadline 100, resolver runs at 80
+  const r = resolveProposal(
+    { players: ['a', 'b'], accepted: ['a', 'b'], declined: [], deadline: 100 },
+    80
+  );
+  assert.equal(r.kind, 'launch');
+});
+
+// ── lifecycle helpers ───────────────────────────────────────────────────────
+
+test('markProposed + markInGame + clearProposed move through status only', () => {
+  const p = { id: 'a', status: PLAYER_STATUS.INTENT_READY, currentZoneId: JUMP.id, candidateSince: 1000 };
+  const proposed = markProposed(p);
+  assert.equal(proposed.status, PLAYER_STATUS.PROPOSED);
+  assert.equal(proposed.currentZoneId, JUMP.id);
+
+  const inGame = markInGame(proposed);
+  assert.equal(inGame.status, PLAYER_STATUS.IN_GAME);
+});
+
+test('clearProposed requeues player when still inside the zone', () => {
+  const proposed = { id: 'a', status: PLAYER_STATUS.PROPOSED, currentZoneId: JUMP.id, candidateSince: 1000 };
+  const cleared = clearProposed(proposed, JUMP, 9000);
+  assert.equal(cleared.status, PLAYER_STATUS.CANDIDATE);
+  assert.equal(cleared.candidateSince, 9000); // resets dwell timer
+});
+
+test('clearProposed sends player to roam when zone is gone', () => {
+  const proposed = { id: 'a', status: PLAYER_STATUS.PROPOSED, currentZoneId: JUMP.id, candidateSince: 1000 };
+  const cleared = clearProposed(proposed, null, 9000);
+  assert.equal(cleared.status, PLAYER_STATUS.ROAM);
+  assert.equal(cleared.currentZoneId, null);
+  assert.equal(cleared.candidateSince, null);
 });

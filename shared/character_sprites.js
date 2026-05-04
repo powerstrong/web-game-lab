@@ -5,12 +5,15 @@
  * existing identifiers (jump-climber/quiz/tug already use kebab-case).
  */
 
+/* gameIds[gameId] is null when that game does not support this avatar.
+ * Tug-war only supports 3 of the 5 — see worker/src/room.js TUG_CHARACTERS.
+ */
 window.CHARACTERS = [
   {
     worldId: 'latte_puppy',
     label: '라떼강아지',
     sheet: '/world-beta/assets/latte_puppy_sheet_3x3.png',
-    gameIds: { 'jump-climber': 'latte-puppy', 'mallang-quiz-battle': 'latte-puppy', 'mallang-tug-war': 'latte-puppy' },
+    gameIds: { 'jump-climber': 'latte-puppy', 'mallang-quiz-battle': 'latte-puppy', 'mallang-tug-war': null },
   },
   {
     worldId: 'mochi_rabbit',
@@ -28,7 +31,7 @@ window.CHARACTERS = [
     worldId: 'mint_kitten',
     label: '고양이',
     sheet: '/world-beta/assets/mint_kitten_sheet_3x3.png',
-    gameIds: { 'jump-climber': 'mint-kitten', 'mallang-quiz-battle': 'mint-kitten', 'mallang-tug-war': 'mint-kitten' },
+    gameIds: { 'jump-climber': 'mint-kitten', 'mallang-quiz-battle': 'mint-kitten', 'mallang-tug-war': null },
   },
   {
     worldId: 'peach_chick',
