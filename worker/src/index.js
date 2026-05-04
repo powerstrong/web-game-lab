@@ -58,8 +58,11 @@ export default {
       return corsResponse(JSON.stringify({ code }));
     }
 
-    // GET /api/rooms/:code - WebSocket upgrade to GameRoom DO
-    const roomMatch = url.pathname.match(/^\/api\/rooms\/(\d+)$/);
+    // GET /api/rooms/:code - WebSocket upgrade to GameRoom DO.
+    // Code can be a 4-digit lobby code (1234) OR a world-launched opaque id
+    // (wm-abc123...). Both route to the same GameRoom DO; the regex was
+    // widened from \d+ to [\w-]+ to accommodate world instance ids.
+    const roomMatch = url.pathname.match(/^\/api\/rooms\/([\w-]{1,40})$/);
     if (method === 'GET' && roomMatch) {
       const code = roomMatch[1];
       const id = env.GAME_ROOM.idFromName(code);

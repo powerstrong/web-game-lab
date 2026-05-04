@@ -1,5 +1,6 @@
 import { QUIZ_BANK } from './quiz_bank.js';
 import { submitScore } from './leaderboard.js';
+import { pickGameCharacter } from './characters.js';
 
 const COLORS = [
   '#ef4444', '#3b82f6', '#22c55e', '#f59e0b',
@@ -1927,6 +1928,25 @@ export class GameRoom {
       return new Response('OK');
     }
 
+    /* /world-launch — internal endpoint called by WorldChannel after a match
+     * is confirmed. Seeds the room with currentGame/gameRoster/phase=playing
+     * directly so players can hit the game URL and join immediately, with no
+     * lobby vote/countdown step.
+     *
+     * NOT exposed via the worker's public router. WorldChannel reaches us via
+     * env.GAME_ROOM.get(id).fetch(internalRequest).
+     */
+    if (request.method === 'POST' && url.pathname === '/world-launch') {
+      const body = await request.json().catch(() => null);
+      const ok = body && typeof body.gameId === 'string' && Array.isArray(body.players) && body.players.length > 0;
+      if (!ok) return new Response('Invalid body', { status: 400 });
+      if (!GAME_PATHS[body.gameId]) {
+        return new Response(`Unknown gameId: ${body.gameId}`, { status: 400 });
+      }
+      await this._seedFromWorld(body);
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
     const upgrade = request.headers.get('Upgrade');
     if (!upgrade || upgrade.toLowerCase() !== 'websocket') {
       return new Response('Expected WebSocket upgrade', { status: 426 });
@@ -2136,6 +2156,50 @@ export class GameRoom {
     if (submitted >= total) {
       await this.state.storage.put('phase', 'results');
     }
+  }
+
+  /* Seeds a freshly-instantiated room from the world channel matchmaker.
+   * Skips the lobby vote/countdown path entirely — players will land directly
+   * on the game URL with their wm-<uuid> code and trigger _handleJoinGame,
+   * which already handles phase=playing + gameRoster correctly.
+   *
+   * Caller contract:
+   *   gameId  : 'jump-climber' | 'mallang-tug-war' | 'mallang-quiz-battle'
+   *   players : [{ id, name, characterId? }]  (id is the world sessionId,
+   *             reused as the game playerId so the URL ?playerId= matches)
+   *   code    : optional 4-digit-style code; for world matches we just use
+   *             the wm-<uuid> from the URL path.
+   */
+  async _seedFromWorld({ gameId, players, code }) {
+    // Defensive cleanup — a room reused for a different match must not carry
+    // ghosts. _startCountdown does the same dance.
+    this.jumpGame = null;
+    this._stopJumpLoop();
+    this.tugWarGame = null;
+    this._stopTugWarLoop();
+    if (this.quizGame?.timer) clearTimeout(this.quizGame.timer);
+    this.quizGame = null;
+
+    if (typeof code === 'string' && code) {
+      await this.state.storage.put('code', code);
+    }
+    await this.state.storage.put('source', 'world');
+    await this.state.storage.put('currentGame', gameId);
+    await this.state.storage.put('gameRoster', players.map((p, i) => ({
+      id: p.id,
+      name: p.name,
+      colorIndex: i,
+      color: COLORS[i % COLORS.length],
+      // World gives us snake_case avatar ids (mochi_rabbit). Game prototypes
+      // expect kebab-case (mochi-rabbit). Translate now so the per-game
+      // sanitize step doesn't silently fall back to the default avatar.
+      characterId: pickGameCharacter(p.characterId, gameId).gameCharacterId,
+    })));
+    await this.state.storage.delete('scores');
+    await this.state.storage.delete('chatLog');
+    await this.state.storage.put('phase', 'playing');
+    // No broadcast — the room has no live sockets yet. Players will arrive
+    // via /api/rooms/<wm-id> WS upgrade and send 'join_game'.
   }
 
   async _handleRematch() {
