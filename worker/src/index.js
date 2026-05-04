@@ -1,6 +1,9 @@
 import { getWeekKey, getWeeklyLeaderboard } from './leaderboard.js';
 
 export { GameRoom } from './room.js';
+export { WorldChannel } from './world.js';
+
+const LOUNGE_ID_PATTERN = /^lounge-[a-z0-9-]{1,32}$/;
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -62,6 +65,31 @@ export default {
       const id = env.GAME_ROOM.idFromName(code);
       const stub = env.GAME_ROOM.get(id);
       // Forward the request (including Upgrade header) to the DO
+      return stub.fetch(request);
+    }
+
+    // GET /api/world/:loungeId - WebSocket upgrade to WorldChannel DO
+    const worldMatch = url.pathname.match(/^\/api\/world\/([a-z0-9-]+)$/);
+    if (method === 'GET' && worldMatch) {
+      const loungeId = worldMatch[1];
+      if (!LOUNGE_ID_PATTERN.test(loungeId)) {
+        return corsResponse(JSON.stringify({ error: 'Invalid lounge id' }), { status: 400 });
+      }
+
+      if (request.headers.get('Upgrade') !== 'websocket') {
+        return corsResponse(JSON.stringify({ error: 'WebSocket upgrade required' }), { status: 426 });
+      }
+
+      const id = env.WORLD_CHANNEL.idFromName(loungeId);
+      const stub = env.WORLD_CHANNEL.get(id);
+
+      // Prime the lounge with its id on first contact (idempotent)
+      await stub.fetch(new Request(`${url.origin}/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loungeId }),
+      }));
+
       return stub.fetch(request);
     }
 
