@@ -218,6 +218,7 @@
       case 'match_proposal': return handleMatchProposal(env.d);
       case 'match_confirmed': return handleMatchConfirmed(env.d);
       case 'match_cancelled': return handleMatchCancelled(env.d);
+      case 'go_to_game': return handleGoToGame(env.d);
       default:
         // Quietly ignore unknown types so future server messages don't break us.
         return;
@@ -373,8 +374,24 @@
     setMemberStatuses(d.accepted || [], d.declined || []);
     stopMatchCountdown();
     matchCountdown.textContent = '';
-    // The actual redirect to the game URL is wired in a later commit.
-    // For now we just keep the modal informing the user.
+    // go_to_game arrives separately and triggers the redirect.
+  }
+
+  function handleGoToGame(d) {
+    if (!d?.url || typeof d.url !== 'string') return;
+    // Hardened same-origin check. `startsWith('/')` is NOT enough — '//evil.com'
+    // and '/\evil.com' both pass that and would navigate off-origin. Parse the
+    // URL and verify both the origin and that it's a known game prototype path.
+    let target;
+    try { target = new URL(d.url, window.location.origin); } catch { return; }
+    if (target.origin !== window.location.origin) return;
+    if (!target.pathname.startsWith('/prototypes/')) return;
+
+    stopMatchCountdown();
+    stopHeartbeat();
+    if (rafHandle) { cancelAnimationFrame(rafHandle); rafHandle = null; }
+    if (ws) { try { ws.close(); } catch { /* ignore */ } }
+    window.location.href = target.pathname + target.search + target.hash;
   }
 
   function handleMatchCancelled(d) {

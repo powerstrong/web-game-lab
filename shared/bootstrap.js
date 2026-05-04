@@ -50,6 +50,15 @@ window.GameBoot = (function () {
   }
 
   function exit() {
+    // World-launched games carry from=world&worldId=... so we return players
+    // to the lounge they came from instead of dumping them into the lobby.
+    const from = params.get('from');
+    if (from === 'world') {
+      const worldId = params.get('worldId');
+      const qs = worldId ? ('?worldId=' + encodeURIComponent(worldId)) : '';
+      window.location.href = '/world-beta/' + qs;
+      return;
+    }
     if (isMultiplayer && code) {
       window.location.href =
         '/lobby/room.html?code=' + encodeURIComponent(code) +

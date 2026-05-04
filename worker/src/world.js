@@ -15,6 +15,15 @@
 import { GAME_ZONES, getZone, findZoneAt } from './worldZones.js';
 import { CHARACTERS, isValidCharacterId, randomCharacterId } from './characters.js';
 import { applyZonePresence, tryFormMatch, resolveProposal, PLAYER_STATUS } from './matcher.js';
+import { toGameCharacterId } from './characters.js';
+
+// Mirrors GAME_PATHS in worker/src/room.js — keep these aligned so a new
+// game added to the registry needs no world-side change unless we want a zone.
+const GAME_URLS = Object.freeze({
+  'jump-climber': '/prototypes/jump-climber/index.html',
+  'mallang-tug-war': '/prototypes/mallang-tug-war/index.html',
+  'mallang-quiz-battle': '/prototypes/mallang-quiz-battle/index.html',
+});
 
 const PROTOCOL_VERSION = 1;
 const MAX_NAME_LEN = 16;
@@ -499,19 +508,73 @@ export class WorldChannel {
     this._broadcastZoneState(proposal.zoneId);
   }
 
-  _launchProposal(proposal) {
+  async _launchProposal(proposal) {
     if (!this.proposals.has(proposal.matchId)) return;
-    // Mark members as IN_GAME and broadcast confirmation. The actual jump to
-    // the game URL is wired in a later commit (GameRoom seed + go_to_game).
+    if (!GAME_URLS[proposal.gameId]) {
+      // Defensive — should never happen if zone catalog matches GAME_URLS.
+      this._cancelProposal(proposal, 'invalid');
+      return;
+    }
+
+    // Snapshot members with their game-side characterId so the URL the player
+    // receives carries the correct kebab-case avatar id.
+    const launchPlayers = [];
+    const memberSockets = [];
     for (const ws of this.state.getWebSockets()) {
       const a = ws.deserializeAttachment();
       if (!a?.sessionId || !proposal.players.includes(a.sessionId)) continue;
+      memberSockets.push({ ws, attach: a });
+      launchPlayers.push({
+        id: a.sessionId,
+        name: a.name,
+        characterId: a.characterId, // world id; room.js translates via pickGameCharacter
+      });
+    }
+
+    // Seed the GameRoom DO with phase=playing + roster. The matchId itself
+    // serves as the room code (wm-<uuid>) — opaque, no 4-digit collision risk.
+    try {
+      const id = this.env.GAME_ROOM.idFromName(proposal.matchId);
+      const stub = this.env.GAME_ROOM.get(id);
+      const res = await stub.fetch(new Request('https://world.local/world-launch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gameId: proposal.gameId,
+          code: proposal.matchId,
+          players: launchPlayers,
+        }),
+      }));
+      if (!res.ok) throw new Error(`world-launch failed: ${res.status}`);
+    } catch (err) {
+      // GameRoom seeding failed — cancel cleanly so members aren't stuck.
+      this._cancelProposal(proposal, 'invalid');
+      return;
+    }
+
+    // Build the per-player game URL. Use a relative path so the browser stays
+    // on the same origin as the world page.
+    const gamePath = GAME_URLS[proposal.gameId];
+    for (const { ws, attach } of memberSockets) {
       ws.serializeAttachment({
-        ...a,
+        ...attach,
         status: PLAYER_STATUS.IN_GAME,
         currentZoneId: null,
         candidateSince: null,
       });
+      const gameCharacterId =
+        toGameCharacterId(attach.characterId, proposal.gameId) || attach.characterId;
+      const params = new URLSearchParams({
+        code: proposal.matchId,
+        playerId: attach.sessionId,
+        name: attach.name || '',
+        gameId: proposal.gameId,
+        characterId: gameCharacterId || '',
+        from: 'world',
+        worldId: this.loungeId || 'lounge-1',
+      });
+      const url = `${gamePath}?${params.toString()}`;
+
       this._send(ws, {
         t: 'match_confirmed',
         d: {
@@ -521,7 +584,12 @@ export class WorldChannel {
           declined: proposal.declined,
         },
       });
+      this._send(ws, {
+        t: 'go_to_game',
+        d: { matchId: proposal.matchId, gameId: proposal.gameId, url },
+      });
     }
+
     this.proposals.delete(proposal.matchId);
     this._broadcastZoneState(proposal.zoneId);
   }
