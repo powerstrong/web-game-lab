@@ -2,6 +2,15 @@ name = "game-lobby"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
+# Local dev only: serve the worktree's static files (world-beta, prototypes,
+# lobby, shared, ...) from the same wrangler dev instance so a single
+# `npm run dev` from worker/ exposes both the API and the static pages.
+# In production these are served by a separate Pages-style assets worker
+# (see worktree-root wrangler.jsonc) — not by this worker.
+[assets]
+directory = "../"
+binding = "ASSETS"
+
 [[durable_objects.bindings]]
 name = "GAME_ROOM"
 class_name = "GameRoom"
