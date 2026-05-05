@@ -904,7 +904,15 @@ function recordNetworkRttSample(rttMs) {
 
 function syncNetworkClock(snapshot, now = performance.now()) {
   if (!Number.isFinite(snapshot.elapsedMs)) return;
-  state.network.elapsedMs = snapshot.elapsedMs + getNetworkOneWayDelayMs();
+  const estimated = snapshot.elapsedMs + getNetworkOneWayDelayMs();
+  if (!state.network.elapsedSyncedAtMs) {
+    state.network.elapsedMs = estimated;
+  } else {
+    const current = getEstimatedNetworkElapsedMs(now);
+    const delta = estimated - current;
+    // 200ms 초과 불연속은 스냅, 소폭 지터는 EMA(30%) 블렌드
+    state.network.elapsedMs = current + (Math.abs(delta) > 200 ? delta : delta * 0.3);
+  }
   state.network.elapsedSyncedAtMs = now;
 }
 
@@ -1046,8 +1054,7 @@ function updateNetworkTargets(snapshot) {
   syncNetworkClock(snapshot, syncNow);
   state.network.snapshot = snapshot;
   pushNetworkSnapshot(snapshot);
-  const bufferedState = sampleBufferedNetworkState(syncNow);
-  state.cameraY = bufferedState ? bufferedState.cameraY : (snapshot.cameraY || 0);
+  // cameraY는 renderNetworkFrame에서 로컬 플레이어 기준으로 갱신 — 여기서 덮지 않는다.
 
   if (Array.isArray(snapshot.platforms)) {
     syncEntityMap(
@@ -1172,6 +1179,7 @@ function updateNetworkTargets(snapshot) {
       entry.targetY = player.y;
       entry.serverX = player.x;
       entry.serverY = player.y;
+      entry.prevServerVy = entry.serverVy || 0;
       entry.serverVx = player.vx || 0;
       entry.serverVy = player.vy || 0;
       entry.el.classList.toggle("is-eliminated", !player.alive);
@@ -1273,9 +1281,6 @@ function renderNetworkFrame(now) {
   const motionTime = bufferedState
     ? bufferedState.elapsedMs / 1000
     : getBufferedNetworkElapsedMs(now) / 1000;
-  if (bufferedState) {
-    state.cameraY = bufferedState.cameraY;
-  }
 
   state.network.platformEls.forEach((entry) => {
     renderNetworkPlatformEntry(entry, motionTime);
@@ -1295,15 +1300,40 @@ function renderNetworkFrame(now) {
     entry.el.style.transform = formatWorldTranslate(x, y - state.cameraY);
   });
 
+  let localPlayerEntry = null;
   state.network.playerEls.forEach((entry) => {
     if (entry.isLocalPlayer) {
-      // 로컬 예측: 서버와 동일한 능력치 moveMul을 사용해 움직여야 서버 보정이 덜 튄다.
+      const safeStep = clamp(predictionStep, 0, 3); // 탭 wake 시 거대한 스텝 방지
       const localAbilities = getAbilities(state.setup[0].characterId);
       const predictedDirection = getPlayerDirection(0);
-      entry.currentX += predictedDirection * settings.moveSpeed * localAbilities.moveMul * predictionStep;
-      entry.currentX += (entry.serverX - entry.currentX) * 0.08;
-      entry.currentY += (entry.serverY - entry.currentY) * 0.18;
+
+      // X: 로컬 예측 + frame-rate independent 보정
+      entry.currentX += predictedDirection * settings.moveSpeed * localAbilities.moveMul * safeStep;
+      entry.currentX += (entry.serverX - entry.currentX) * (1 - Math.pow(0.92, safeStep));
       entry.currentX = clamp(entry.currentX, 0, settings.worldWidth - (entry.latest?.width || 46));
+
+      if (entry.alive) {
+        // Y: 서버 vy + 중력으로 틱 사이를 extrapolate
+        if (typeof entry.currentVy !== "number") entry.currentVy = entry.serverVy || 0;
+        entry.currentVy += settings.gravity * localAbilities.gravityMul * safeStep;
+        entry.currentY += entry.currentVy * safeStep;
+
+        // 착지/부스트(vy 부호 반전) 또는 큰 위치 오차: 강한 스냅 보정
+        const yError = entry.serverY - entry.currentY;
+        const bounced = typeof entry.prevServerVy === "number" &&
+          entry.prevServerVy > 1.0 && (entry.serverVy || 0) < -1.0;
+        const corrBlend = (Math.abs(yError) > 60 || bounced)
+          ? 0.5
+          : (1 - Math.pow(0.94, safeStep));
+        entry.currentY += yError * corrBlend;
+        entry.currentVy += ((entry.serverVy || 0) - entry.currentVy) * corrBlend;
+
+        localPlayerEntry = entry;
+      } else {
+        // 탈락: 서버 값으로 스냅 (중력 extrapolation 금지)
+        entry.currentY = entry.serverY;
+        entry.currentVy = 0;
+      }
     } else if (bufferedState?.playersById.has(entry.id)) {
       const sampledPlayer = bufferedState.playersById.get(entry.id);
       entry.currentX = sampledPlayer.x;
@@ -1315,6 +1345,15 @@ function renderNetworkFrame(now) {
 
     entry.el.style.transform = formatWorldTranslate(entry.currentX, entry.currentY - state.cameraY);
   });
+
+  // 카메라: 살아있는 로컬 플레이어 currentY 기준 — 탈락/관전은 서버 버퍼 폴백
+  if (localPlayerEntry) {
+    const cameraOffset = Math.min(state.arenaMetrics.clientHeight * 0.5, 360);
+    const target = Math.min(state.cameraY, localPlayerEntry.currentY - cameraOffset);
+    state.cameraY += (target - state.cameraY) * 0.16;
+  } else if (bufferedState) {
+    state.cameraY = bufferedState.cameraY;
+  }
 
   state.effects.forEach((effect) => {
     effect.el.style.setProperty("--ty", `${effect.tyBase - state.cameraY}px`);
