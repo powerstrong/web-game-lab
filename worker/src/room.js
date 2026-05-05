@@ -46,7 +46,7 @@ const JUMP_GAME_SETTINGS = {
   platformWidthMax: 150,
   startLineY: 540,
   playerSpawnOffset: 52,
-  tickMs: 33,
+  tickMs: 200,
   safePlatformInset: 14,
   difficultyHeightRange: 2600,
   pathShiftMin: 180,
