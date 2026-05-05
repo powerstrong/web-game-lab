@@ -31,6 +31,43 @@ const chatSendBtn = document.getElementById("chatSend");
 const gameBoot = window.GameBoot || null;
 const isRoomSession = Boolean(gameBoot && gameBoot.isMultiplayer);
 
+// URL 플래그: ?perf=1 → FPS/worst-frame 미터 노출, ?mute=1 → Web Audio 비활성
+const PERF_PARAMS = new URLSearchParams(window.location.search);
+const PERF_METER_ENABLED = PERF_PARAMS.get("perf") === "1";
+const AUDIO_MUTED = PERF_PARAMS.get("mute") === "1";
+
+let perfMeterEl = null;
+let perfFrameCount = 0;
+let perfLastReportMs = 0;
+let perfWorstFrameMs = 0;
+let perfLastFrameMs = 0;
+
+function initPerfMeter() {
+  if (!PERF_METER_ENABLED) return;
+  perfMeterEl = document.createElement("div");
+  perfMeterEl.style.cssText =
+    "position:fixed;top:8px;right:8px;z-index:9999;background:rgba(0,0,0,0.7);color:#0f0;padding:4px 8px;font-family:monospace;font-size:11px;line-height:1.3;pointer-events:none;border-radius:4px";
+  perfMeterEl.textContent = "—";
+  document.body.appendChild(perfMeterEl);
+}
+
+function tickPerfMeter(now) {
+  if (!perfMeterEl) return;
+  if (perfLastFrameMs > 0) {
+    const dt = now - perfLastFrameMs;
+    if (dt > perfWorstFrameMs) perfWorstFrameMs = dt;
+  }
+  perfLastFrameMs = now;
+  perfFrameCount += 1;
+  if (now - perfLastReportMs >= 500) {
+    const fps = (perfFrameCount * 1000) / (now - perfLastReportMs);
+    perfMeterEl.textContent = `${fps.toFixed(0)}fps  worst:${perfWorstFrameMs.toFixed(0)}ms  effs:${state.effects.length}`;
+    perfFrameCount = 0;
+    perfWorstFrameMs = 0;
+    perfLastReportMs = now;
+  }
+}
+
 function assetPath(fileName) {
   return `./assets/${encodeURIComponent(fileName)}`;
 }
@@ -299,6 +336,7 @@ function ensureAudioUnlocked() {
 }
 
 function playTone({ type = "sine", frequency = 440, endFrequency = frequency, duration = 0.12, volume = 0.04 }) {
+  if (AUDIO_MUTED) return;
   const ctx = ensureAudioUnlocked();
   if (!ctx) return;
 
@@ -1281,6 +1319,7 @@ function renderNetworkFrame(now) {
     effect.el.style.setProperty("--ty", `${effect.tyBase - state.cameraY}px`);
   });
 
+  tickPerfMeter(now);
   state.network.renderFrameId = requestAnimationFrame(renderNetworkFrame);
 }
 
@@ -1702,9 +1741,14 @@ function updateMonsters() {
   }
 }
 
+// 스파클 element pool — boost 픽업 1회당 6개 생성되므로 매번 createElement 비용 큼.
+const sparklePool = [];
 function spawnSparkles(worldCx, worldCy, kind) {
   for (let i = 0; i < 6; i += 1) {
-    const sparkle = document.createElement("div");
+    const sparkle = sparklePool.pop() || document.createElement("div");
+    // 애니메이션 재시작 트릭: class 비웠다가 reflow 후 재적용
+    sparkle.className = "";
+    void sparkle.offsetWidth;
     sparkle.className = `boost-sparkle boost-sparkle--${kind}`;
     const offsetX = (Math.random() - 0.5) * 60;
     const offsetY = -10 - Math.random() * 50;
@@ -1714,7 +1758,10 @@ function spawnSparkles(worldCx, worldCy, kind) {
     sparkle.style.top = `${worldCy}px`;
     sparkle.style.transform = `translate(-50%, -50%)`;
     worldEl.appendChild(sparkle);
-    setTimeout(() => sparkle.remove(), 700);
+    setTimeout(() => {
+      sparkle.remove();
+      sparklePool.push(sparkle);
+    }, 700);
   }
 }
 
@@ -1759,9 +1806,17 @@ const EFFECT_SPECS = {
   pickup: { w: 96,  h: 96,  yOffsetMul: 0.5,  lifeMs: 420 },
 };
 
+// 이펙트 element pool (kind별) — 매 점프마다 land+jump 이펙트 spawn하므로
+// createElement/append/remove 비용이 모바일 lag의 핵심. pool로 createElement 비용 제거.
+const effectPool = new Map();
 function spawnEffect(kind, worldX, worldY) {
   const spec = EFFECT_SPECS[kind] || EFFECT_SPECS.jump;
-  const el = document.createElement("div");
+  let pool = effectPool.get(kind);
+  if (!pool) { pool = []; effectPool.set(kind, pool); }
+  const el = pool.pop() || document.createElement("div");
+  // 애니메이션 재시작 트릭: class 비웠다가 reflow 후 재적용 (CSS animation 한번만 재생)
+  el.className = "";
+  void el.offsetWidth;
   el.className = `effect effect--${kind}`;
   const tx = worldX - spec.w / 2;
   const tyBase = worldY - spec.h * spec.yOffsetMul;
@@ -1776,6 +1831,7 @@ function spawnEffect(kind, worldX, worldY) {
   setTimeout(() => {
     el.remove();
     state.effects = state.effects.filter((e) => e !== effectObj);
+    pool.push(el);
   }, spec.lifeMs);
 }
 
@@ -2160,6 +2216,7 @@ function loop() {
   updateCamera();
   render();
   updateHud();
+  tickPerfMeter(performance.now());
 
   if (state.running) {
     state.rafId = requestAnimationFrame(loop);
@@ -2441,6 +2498,7 @@ function bindChatEvents() {
 }
 
 configureSessionMode();
+initPerfMeter();
 bindSetupEvents();
 bindKeyboardEvents();
 bindChatEvents();
