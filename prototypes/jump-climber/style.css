@@ -764,6 +764,12 @@ button {
   .boost-sparkle--super {
     filter: none;
   }
+  /* 게임 화면 위에 떠 있는 chat-toggle 버튼도 backdrop-filter 가 매 프레임 blur 재계산 */
+  .chat-toggle {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(28, 22, 26, 0.86);
+  }
   .results-overlay {
     backdrop-filter: blur(4px);
   }
@@ -810,10 +816,13 @@ button {
     border-radius: 20px;
     /* 점프 시 카메라가 따라 올라가며 게임 월드가 매 프레임 움직이는데,
        이 위에 떠 있는 topbar에 backdrop-filter가 있으면 매 프레임 blur 재계산 →
-       모바일 GPU 가장 큰 lag 원인. 불투명도 높은 배경으로 대체해서 가독성 유지. */
+       모바일 GPU 가장 큰 lag 원인. .panel 규칙(blur(16px)) + 모바일 .panel
+       오버라이드(blur(8px))를 명시적으로 끄고 불투명도 높은 배경으로 대체. */
     background: linear-gradient(180deg, rgba(28, 22, 26, 0.94), rgba(28, 22, 26, 0.86));
     border: 1px solid rgba(255, 255, 255, 0.06);
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   .screen--play .play-topbar__main {
