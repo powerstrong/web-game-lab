@@ -1250,6 +1250,8 @@ function applyJumpInitFrame(frame) {
   state.network.protocol = frame.protocol || "jump/v1";
   state.network.initialized = true;
   state.network.lastSeq = Number.isFinite(frame.seq) ? frame.seq : 0;
+  // jump_init 시 서버 cameraY로 시드 — 이후 로컬 카메라가 stale 값으로 고착되지 않도록
+  if (Number.isFinite(frame.cameraY)) state.cameraY = frame.cameraY;
   updateNetworkTargets(frame);
 }
 
@@ -1318,10 +1320,14 @@ function renderNetworkFrame(now) {
         entry.currentVy += settings.gravity * localAbilities.gravityMul * safeStep;
         entry.currentY += entry.currentVy * safeStep;
 
-        // 착지/부스트(vy 부호 반전) 또는 큰 위치 오차: 강한 스냅 보정
+        // 착지/부스트 또는 큰 위치 오차: 강한 스냅 보정
         const yError = entry.serverY - entry.currentY;
-        const bounced = typeof entry.prevServerVy === "number" &&
-          entry.prevServerVy > 1.0 && (entry.serverVy || 0) < -1.0;
+        const prevVy = entry.prevServerVy || 0;
+        const curVy = entry.serverVy || 0;
+        const bounced = typeof entry.prevServerVy === "number" && (
+          (prevVy > 1.0 && curVy < -1.0) ||  // 낙하→점프
+          (curVy - prevVy < -8)               // 부스트 픽업(rising 중 vy 급감 포함)
+        );
         const corrBlend = (Math.abs(yError) > 60 || bounced)
           ? 0.5
           : (1 - Math.pow(0.94, safeStep));
@@ -1330,7 +1336,8 @@ function renderNetworkFrame(now) {
 
         localPlayerEntry = entry;
       } else {
-        // 탈락: 서버 값으로 스냅 (중력 extrapolation 금지)
+        // 탈락: 서버 값으로 스냅 (X 예측/중력 extrapolation 금지)
+        entry.currentX = entry.serverX;
         entry.currentY = entry.serverY;
         entry.currentVy = 0;
       }
