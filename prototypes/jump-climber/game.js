@@ -45,8 +45,9 @@ let perfLastFrameMs = 0;
 function initPerfMeter() {
   if (!PERF_METER_ENABLED) return;
   perfMeterEl = document.createElement("div");
+  // 모바일 상단은 play-topbar(fixed, z-index 20)가 덮고 있으므로 우하단 터치 영역 위에 표시.
   perfMeterEl.style.cssText =
-    "position:fixed;top:8px;right:8px;z-index:9999;background:rgba(0,0,0,0.7);color:#0f0;padding:4px 8px;font-family:monospace;font-size:11px;line-height:1.3;pointer-events:none;border-radius:4px";
+    "position:fixed;bottom:calc(env(safe-area-inset-bottom, 0px) + 80px);right:8px;z-index:9999;background:rgba(0,0,0,0.78);color:#0f0;padding:6px 10px;font-family:monospace;font-size:12px;line-height:1.3;pointer-events:none;border-radius:6px;font-weight:700;text-shadow:0 1px 2px #000";
   perfMeterEl.textContent = "—";
   document.body.appendChild(perfMeterEl);
 }
