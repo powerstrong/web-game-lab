@@ -732,18 +732,36 @@ button {
 }
 
 @media (max-width: 760px) {
-  /* 모바일 전용 페인트 비용 절감: drop-shadow 약화, backdrop-filter 약화 */
+  /* 모바일 전용 페인트 비용 절감: drop-shadow/backdrop-filter 제거 또는 약화.
+     점프할 때마다 카메라가 따라 올라가 화면 콘텐츠가 매 프레임 움직이는데,
+     drop-shadow/backdrop-filter는 모바일 GPU에서 매 프레임 재래스터되므로
+     큰 paint 비용이 발생한다. */
   .panel {
     backdrop-filter: blur(8px);
   }
   .monster {
-    filter: drop-shadow(0 6px 12px rgba(120, 90, 140, 0.28));
+    /* 280×280 큰 element에 drop-shadow는 모바일 GPU 큰 비용 → 제거 */
+    filter: none;
   }
   .boost {
-    filter: drop-shadow(0 0 4px rgba(255, 160, 60, 0.32));
+    filter: none;
     box-shadow: none;
   }
   .avatar__sprite {
+    filter: none;
+  }
+  .platform {
+    /* 30+ platform이 매 프레임 움직이며 box-shadow는 paint 영역 확대 → 제거 */
+    box-shadow: none;
+  }
+  /* 점프/부스트 시 매번 드롭섀도우 적용된 burst/land 이펙트가 scale 애니메이션
+     하면서 모바일 GPU re-raster → drop-shadow 제거 */
+  .effect--burst,
+  .effect--land {
+    filter: none;
+  }
+  .boost-sparkle--boost,
+  .boost-sparkle--super {
     filter: none;
   }
   .results-overlay {
@@ -790,10 +808,12 @@ button {
     gap: 8px;
     padding: 10px;
     border-radius: 20px;
-    background: linear-gradient(180deg, rgba(28, 22, 26, 0.84), rgba(28, 22, 26, 0.5));
+    /* 점프 시 카메라가 따라 올라가며 게임 월드가 매 프레임 움직이는데,
+       이 위에 떠 있는 topbar에 backdrop-filter가 있으면 매 프레임 blur 재계산 →
+       모바일 GPU 가장 큰 lag 원인. 불투명도 높은 배경으로 대체해서 가독성 유지. */
+    background: linear-gradient(180deg, rgba(28, 22, 26, 0.94), rgba(28, 22, 26, 0.86));
     border: 1px solid rgba(255, 255, 255, 0.06);
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
-    backdrop-filter: blur(10px);
   }
 
   .screen--play .play-topbar__main {
