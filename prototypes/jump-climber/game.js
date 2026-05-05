@@ -756,9 +756,17 @@ function showNetworkResultsOverlay(results) {
   resultsOverlay.classList.add("is-active");
 }
 
+let lastHudSignature = "";
 function renderHudList(rows) {
   if (!hudListEl) return;
-  // 동일 markup이 이미 있으면 재사용해서 깜빡임 없도록 in-place 갱신
+  // 매 프레임 호출되므로 시그니처 비교로 변경 없을 시 innerHTML 재구성을 건너뛴다.
+  // (점수는 m 단위 정수, alive/이름은 자주 안 바뀜 → 실제 갱신은 드물다)
+  let signature = "";
+  for (const row of rows) {
+    signature += `${row.name}${row.score}${row.alive ? 1 : 0}${row.isMe ? 1 : 0}`;
+  }
+  if (signature === lastHudSignature) return;
+  lastHudSignature = signature;
   hudListEl.innerHTML = rows
     .map((row) => {
       const classes = ["hud-row"];
@@ -994,7 +1002,7 @@ function initializeEntityMotion(entry, x, y, rotation = 0) {
 }
 
 function updateNetworkTargets(snapshot) {
-  applyArenaScale();
+  // arena 크기는 resize 핸들러 + startGame 진입 시에만 캐싱한다 (매 스냅샷 layout read 금지).
   const syncNow = performance.now();
   syncNetworkClock(snapshot, syncNow);
   state.network.snapshot = snapshot;
@@ -1426,6 +1434,8 @@ function connectNetworkGame() {
 
   clearWorld();
   clearNetworkWorld();
+  // arena 메트릭은 첫 snapshot 도착 시점에 이미 채워져 있어야 한다 (rAF에 의존하지 않음).
+  applyArenaScale(true);
 
   const ws = new WebSocket(buildRoomWebSocketUrl(gameBoot.code));
   state.network.ws = ws;
@@ -1636,7 +1646,7 @@ function spawnEdgeMonster() {
   const size = settings.monsterSize;
   const direction = Math.random() < 0.5 ? -1 : 1;
   const x = direction === 1 ? -size : settings.worldWidth;
-  const arenaH = arena.clientHeight || 600;
+  const arenaH = state.arenaMetrics.clientHeight || 600;
   const y = state.cameraY + (0.15 + Math.random() * 0.4) * arenaH;
   const kind = Math.random() < 0.55 ? "cloud_imp" : "fluff_ghost";
   const angle = pickInitialMonsterAngle(direction);
@@ -1661,7 +1671,7 @@ function spawnEdgeMonster() {
 
 function updateMonsters() {
   const now = performance.now();
-  const arenaH = arena.clientHeight || 600;
+  const arenaH = state.arenaMetrics.clientHeight || 600;
   const speed = settings.monsterSpeed;
   state.monsters = state.monsters.filter((m) => {
     if (now >= m.nextTurnAt) {
@@ -1783,6 +1793,9 @@ function clearWorld() {
   state.arenaMetrics.clientHeight = 0;
   state.arenaMetrics.scale = 1;
   state.arenaMetrics.worldHeight = 0;
+  // HUD도 함께 비워야 dedup 시그니처 ""와 빈 rows 입력이 모순 없이 동작 (이전 HUD 잔존 방지).
+  if (hudListEl) hudListEl.innerHTML = "";
+  lastHudSignature = "";
 }
 
 function resetWorld() {
@@ -1845,7 +1858,7 @@ function ensurePlatformsAbove() {
     state.platforms.push(platform);
   }
 
-  const cleanupLimit = state.cameraY + arena.clientHeight + 180;
+  const cleanupLimit = state.cameraY + state.arenaMetrics.clientHeight + 180;
   state.platforms = state.platforms.filter((platform) => {
     if (platform.y > cleanupLimit) {
       platform.el.remove();
@@ -2051,7 +2064,7 @@ function updatePlayers() {
     resolveSoloMonsterCollisions(player, previousY);
     updateBestHeight(player);
 
-    if (player.y > state.cameraY + arena.clientHeight + 140) {
+    if (player.y > state.cameraY + state.arenaMetrics.clientHeight + 140) {
       eliminatePlayer(player);
     }
   });
@@ -2064,7 +2077,7 @@ function updateCamera() {
   const lowestVisiblePlayerY = Math.max(...alivePlayers.map((player) => player.y));
   // viewport 높이의 절반을 따라가되, PC가 너무 길어지지 않도록 360px에서 캡.
   // (이전 0.78은 PC에서 카메라가 너무 위 → 320 고정은 작은 모바일 가로에서 답답 → 균형점)
-  const cameraOffset = Math.min(arena.clientHeight * 0.5, 360);
+  const cameraOffset = Math.min(state.arenaMetrics.clientHeight * 0.5, 360);
   const target = Math.min(state.cameraY, lowestVisiblePlayerY - cameraOffset);
   state.cameraY += (target - state.cameraY) * 0.16;
 }
@@ -2094,7 +2107,7 @@ function updatePlayerVisualState(player) {
 }
 
 function render() {
-  applyArenaScale();
+  // applyArenaScale은 resize/startGame 시에만 호출 — 매 프레임 layout read 금지 (thrashing 방지)
   state.platforms.forEach((platform) => {
     platform.el.style.transform = formatWorldTranslate(
       platform.x,
@@ -2432,6 +2445,11 @@ bindSetupEvents();
 bindKeyboardEvents();
 bindChatEvents();
 window.addEventListener("resize", () => applyArenaScale(true));
+// HUD/topbar 높이 변화 등 window resize 없이 .arena 크기가 바뀌는 경우도 캐시 무효화.
+if (typeof ResizeObserver !== "undefined" && arena) {
+  const arenaResizeObserver = new ResizeObserver(() => applyArenaScale(true));
+  arenaResizeObserver.observe(arena);
+}
 renderSetupUI();
 updateHud();
 showScreen("setup");
