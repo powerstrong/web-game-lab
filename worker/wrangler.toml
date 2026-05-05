@@ -2,14 +2,11 @@ name = "game-lobby"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
-# Local dev only: serve the worktree's static files (world-beta, prototypes,
-# lobby, shared, ...) from the same wrangler dev instance so a single
-# `npm run dev` from worker/ exposes both the API and the static pages.
-# In production these are served by a separate Pages-style assets worker
-# (see worktree-root wrangler.jsonc) — not by this worker.
-[assets]
-directory = "../"
-binding = "ASSETS"
+# NOTE: dev-only `[assets]` block intentionally lives in the npm `dev` script
+# as a `--assets ../` CLI flag, NOT in this file. If we put it here, every
+# `wrangler deploy` would upload the entire worktree (.claude/, .omc/, etc.)
+# as assets to the game-lobby worker and conflict with the separate
+# Pages-style web-game-lab worker that already serves static files in prod.
 
 [[durable_objects.bindings]]
 name = "GAME_ROOM"
