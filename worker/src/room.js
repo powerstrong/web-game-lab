@@ -660,7 +660,11 @@ export class GameRoom {
       worldChanged = true;
     }
 
-    const cleanupLimit = this.jumpGame.cameraY + JUMP_GAME_SETTINGS.arenaHeight + 180;
+    const alivePlayers = Object.values(this.jumpGame.players || {}).filter((p) => p.alive);
+    const lowestAliveY = alivePlayers.length > 0
+      ? Math.max(...alivePlayers.map((p) => p.y))
+      : this.jumpGame.cameraY;
+    const cleanupLimit = lowestAliveY + JUMP_GAME_SETTINGS.arenaHeight + 180;
     this.jumpGame.platforms = this.jumpGame.platforms.filter((platform) => platform.y <= cleanupLimit);
     this.jumpGame.boosts = this.jumpGame.boosts.filter((boost) => boost.y <= cleanupLimit);
     // 몬스터는 cross-screen 흐름이라 _tickJumpMonsters에서 자체 cleanup
