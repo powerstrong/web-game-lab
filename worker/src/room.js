@@ -953,15 +953,12 @@ export class GameRoom {
     this._ensureJumpPlatformsAbove();
     const players = Object.values(this.jumpGame.players);
     const substepMs = getJumpSubstepMs();
-    const stepScale = getJumpStepScale(substepMs);
     const substepCount = getJumpSubstepCount();
 
     for (let step = 0; step < substepCount; step += 1) {
       this.jumpGame.elapsedMs += substepMs;
       this._updateJumpPlatformMotion();
       this._tickJumpMonsters(substepMs);
-      players.forEach((player) => this._tickJumpPlayer(player, stepScale));
-      this._updateJumpCamera(substepMs);
 
       if (players.every((player) => !player.alive)) {
         break;
@@ -1917,6 +1914,90 @@ export class GameRoom {
     target.inputDirection = clamp(Number(msg.direction) || 0, -1, 1);
   }
 
+  _handleJumpPlayerState(player, msg) {
+    if (!this.jumpGame || player.role !== 'game' || player.gameId !== 'jump-climber') return;
+    if (player.isSpectator) return;
+    const target = this.jumpGame.players[player.id];
+    if (!target) return;
+
+    target.inputDirection = clamp(Number(msg.direction) || 0, -1, 1);
+    target.connected = true;
+
+    const now = Date.now();
+    const elapsedMs = target.lastStateAtMs
+      ? clamp(now - target.lastStateAtMs, JUMP_PATCH_RATES.playerMs, 1000)
+      : JUMP_PATCH_RATES.playerMs;
+    target.lastStateAtMs = now;
+    const frameBudget = Math.max(1, elapsedMs / JUMP_BASE_STEP_MS);
+    const maxXDelta = 24 + JUMP_GAME_SETTINGS.moveSpeed * 2.5 * frameBudget;
+    const maxYDelta = 180 + 70 * frameBudget;
+    const width = Number.isFinite(msg.width) ? clamp(Number(msg.width), 20, 80) : target.width;
+    const height = Number.isFinite(msg.height) ? clamp(Number(msg.height), 20, 80) : target.height;
+    const x = Number(msg.x);
+    const y = Number(msg.y);
+    const vx = Number(msg.vx);
+    const vy = Number(msg.vy);
+
+    if (Number.isFinite(x)) {
+      const nextX = clamp(x, 0, JUMP_GAME_SETTINGS.worldWidth - width);
+      target.x = Number.isFinite(target.x)
+        ? clamp(nextX, target.x - maxXDelta, target.x + maxXDelta)
+        : nextX;
+    }
+    if (Number.isFinite(y)) {
+      const nextY = clamp(y, -100000, JUMP_GAME_SETTINGS.startLineY + JUMP_GAME_SETTINGS.arenaHeight + 400);
+      target.y = Number.isFinite(target.y)
+        ? clamp(nextY, target.y - maxYDelta, target.y + maxYDelta)
+        : nextY;
+    }
+    if (Number.isFinite(vx)) target.vx = clamp(vx, -40, 40);
+    if (Number.isFinite(vy)) target.vy = clamp(vy, -80, 80);
+    target.width = width;
+    target.height = height;
+
+    const claimedBest = Number(msg.bestHeight);
+    const heightFromY = Math.max(0, Math.round((JUMP_GAME_SETTINGS.startLineY - target.y) / 10));
+    const safeClaimedBest = Number.isFinite(claimedBest)
+      ? Math.min(clamp(claimedBest, 0, 100000), heightFromY + 20)
+      : 0;
+    target.bestHeight = Math.max(
+      target.bestHeight || 0,
+      heightFromY,
+      safeClaimedBest
+    );
+
+    if (target.alive && msg.alive === false) {
+      target.alive = false;
+      target.vx = 0;
+      target.vy = 0;
+    }
+
+    if (target.alive) {
+      const jumpCount = Number(msg.jumpCount);
+      if (Number.isFinite(jumpCount)) target.jumpCount = clamp(Math.round(jumpCount), 0, 100000);
+    }
+
+    const bounceTag = Number(msg.bounceTag);
+    if (Number.isFinite(bounceTag)) target.bounceTag = Math.round(bounceTag) & 0xff;
+    if (['normal', 'super', 'boost'].includes(msg.lastBounceKind)) {
+      target.lastBounceKind = msg.lastBounceKind;
+    }
+
+    if (Array.isArray(msg.pickedBoostIds) && msg.pickedBoostIds.length > 0) {
+      const picked = new Set(msg.pickedBoostIds.slice(0, 8).filter((id) => typeof id === 'string'));
+      const before = this.jumpGame.boosts.length;
+      this.jumpGame.boosts = this.jumpGame.boosts.filter((boost) => !picked.has(boost.id));
+      if (this.jumpGame.boosts.length !== before) this.jumpGame.worldDirty = true;
+    }
+
+    const cameraY = Number(msg.cameraY);
+    if (Number.isFinite(cameraY)) {
+      this.jumpGame.cameraY = Math.min(this.jumpGame.cameraY, clamp(cameraY, -100000, JUMP_GAME_SETTINGS.startLineY));
+    } else if (Number.isFinite(target.y)) {
+      this.jumpGame.cameraY = Math.min(this.jumpGame.cameraY, target.y - 320);
+    }
+  }
+
   // ── fetch ──────────────────────────────────────────────────────────────────
 
   async fetch(request) {
@@ -1973,6 +2054,7 @@ export class GameRoom {
       case 'vote_game':     if (player) await this._handleVoteGame(ws, player, msg);      break;
       case 'vote_start':    if (player) await this._handleVoteStart(ws, player, msg);     break;
       case 'player_input':  if (player) this._handlePlayerInput(player, msg);             break;
+      case 'player_state':  if (player) this._handleJumpPlayerState(player, msg);          break;
       case 'TUG_READY':
         if (player?.gameId === 'mallang-tug-war') await this._handleTugWarReady(player, msg);
         break;

@@ -280,6 +280,8 @@ const state = {
     nextPingId: 1,
     pendingPings: new Map(),
     lastSentDirection: null,
+    localPhysicsRemainderMs: 0,
+    pickedBoostIds: new Set(),
     inputIntervalId: 0,
     pingIntervalId: 0,
     renderFrameId: 0,
@@ -678,6 +680,9 @@ function clearNetworkWorld() {
   state.network.pendingPings.clear();
   state.network.lastFrameTime = 0;
   state.network.lastSentDirection = null;
+  state.network.localPhysicsRemainderMs = 0;
+  state.network.pickedBoostIds.clear();
+  state.cameraY = 0;
   state.isSpectator = false;
   state.effects = [];
   if (spectatorBadgeEl) spectatorBadgeEl.classList.add("is-hidden");
@@ -1071,8 +1076,11 @@ function updateNetworkTargets(snapshot) {
         worldEl.appendChild(el);
         return {
           el,
+          id: platform.id,
           baseX: Number.isFinite(platform.baseX) ? platform.baseX : (Number.isFinite(platform.x) ? platform.x : 0),
           worldY: platform.y,
+          width: platform.width,
+          height: platform.height || 18,
           motion: platform.motion || null,
         };
       },
@@ -1082,8 +1090,11 @@ function updateNetworkTargets(snapshot) {
         el.style.width = `${platform.width}px`;
         const decoType = PLATFORM_DECO_BY_MOTION[platform.motion?.type] || "";
         el.innerHTML = decoType ? `<span class="platform-deco platform-deco--${decoType}"></span>` : "";
+        entry.id = platform.id;
         entry.baseX = Number.isFinite(platform.baseX) ? platform.baseX : (Number.isFinite(platform.x) ? platform.x : 0);
         entry.worldY = platform.y;
+        entry.width = platform.width;
+        entry.height = platform.height || 18;
         entry.motion = platform.motion || null;
         renderNetworkPlatformEntry(entry, getBufferedNetworkElapsedMs(syncNow) / 1000);
       }
@@ -1091,22 +1102,30 @@ function updateNetworkTargets(snapshot) {
   }
 
   if (Array.isArray(snapshot.boosts)) {
+    const serverBoostIds = new Set(snapshot.boosts.map((boost) => boost.id));
+    state.network.pickedBoostIds.forEach((id) => {
+      if (!serverBoostIds.has(id)) state.network.pickedBoostIds.delete(id);
+    });
+    const visibleBoosts = snapshot.boosts.filter((boost) => !state.network.pickedBoostIds.has(boost.id));
     syncEntityMap(
       state.network.boostEls,
-      snapshot.boosts,
+      visibleBoosts,
       (boost) => {
         const el = document.createElement("div");
         el.className = `boost boost--${boost.kind}`;
         el.textContent = BOOST_META[boost.kind]?.label || "";
         worldEl.appendChild(el);
-        return { el, worldX: boost.x, worldY: boost.y };
+        return { el, id: boost.id, worldX: boost.x, worldY: boost.y, size: boost.size, kind: boost.kind };
       },
       (entry, boost) => {
         const el = entry.el;
         el.className = `boost boost--${boost.kind}`;
         el.textContent = BOOST_META[boost.kind]?.label || "";
+        entry.id = boost.id;
         entry.worldX = boost.x;
         entry.worldY = boost.y;
+        entry.size = boost.size;
+        entry.kind = boost.kind;
         renderNetworkBoostEntry(entry);
       }
     );
@@ -1123,19 +1142,29 @@ function updateNetworkTargets(snapshot) {
         worldEl.appendChild(el);
         return {
           el,
+          id: m.id,
           prevX: m.x,
           prevY: m.y,
           worldX: m.x,
           worldY: m.y,
+          size: m.size,
+          kind: m.kind,
+          vx: m.vx || 0,
+          vy: m.vy || 0,
           lastUpdateMs: updateNow,
         };
       },
       (entry, m) => {
         entry.el.className = `monster monster--${m.kind}`;
+        entry.id = m.id;
         entry.prevX = entry.worldX;
         entry.prevY = entry.worldY;
         entry.worldX = m.x;
         entry.worldY = m.y;
+        entry.size = m.size;
+        entry.kind = m.kind;
+        entry.vx = m.vx || 0;
+        entry.vy = m.vy || 0;
         entry.lastUpdateMs = updateNow;
       }
     );
@@ -1192,6 +1221,9 @@ function updateNetworkTargets(snapshot) {
       entry.isLocalPlayer = isLocalPlayer;
       entry.alive = player.alive;
       entry.latest = player;
+      if (isLocalPlayer) {
+        ensureLocalNetworkPlayer(entry, player);
+      }
 
       // bounceTag가 변하면 새 점프(착지/슈퍼/부스트)이므로 시각효과 트리거
       const bounceChanged =
@@ -1199,7 +1231,7 @@ function updateNetworkTargets(snapshot) {
         Number.isFinite(player.bounceTag) &&
         previousLatest.bounceTag !== player.bounceTag;
 
-      if (bounceChanged && previousLatest.alive && player.alive) {
+      if (!isLocalPlayer && bounceChanged && previousLatest.alive && player.alive) {
         const cx = player.x + player.width / 2;
         const cyMid = player.y + player.height / 2;
         const cyFoot = player.y + player.height;
@@ -1273,16 +1305,110 @@ function applyLegacyJumpState(frame) {
   updateNetworkTargets(frame);
 }
 
+function ensureLocalNetworkPlayer(entry, snapshotPlayer) {
+  if (!isRoomSession || state.isSpectator || !entry || !snapshotPlayer) return null;
+
+  let player = state.players[0] || null;
+  if (!player || player.id !== snapshotPlayer.id) {
+    player = {
+      id: snapshotPlayer.id,
+      slot: 0,
+      x: Number.isFinite(snapshotPlayer.x) ? snapshotPlayer.x : 228,
+      y: Number.isFinite(snapshotPlayer.y)
+        ? snapshotPlayer.y
+        : settings.startLineY - settings.playerSpawnOffset,
+      width: Number.isFinite(snapshotPlayer.width) ? snapshotPlayer.width : 46,
+      height: Number.isFinite(snapshotPlayer.height) ? snapshotPlayer.height : 46,
+      vx: Number.isFinite(snapshotPlayer.vx) ? snapshotPlayer.vx : 0,
+      vy: Number.isFinite(snapshotPlayer.vy) ? snapshotPlayer.vy : settings.normalJump,
+      bestHeight: Number.isFinite(snapshotPlayer.bestHeight) ? snapshotPlayer.bestHeight : 0,
+      alive: snapshotPlayer.alive !== false,
+      jumpCount: Number.isFinite(snapshotPlayer.jumpCount) ? snapshotPlayer.jumpCount : 0,
+      bounceTag: Number.isFinite(snapshotPlayer.bounceTag) ? snapshotPlayer.bounceTag : 0,
+      lastBounceKind: snapshotPlayer.lastBounceKind || null,
+      el: entry.el,
+      avatarEl: entry.avatarEl,
+      spriteEl: entry.spriteEl,
+      pose: null,
+    };
+    state.players = [player];
+  }
+
+  player.el = entry.el;
+  player.avatarEl = entry.avatarEl;
+  player.spriteEl = entry.spriteEl;
+  player.width = Number.isFinite(snapshotPlayer.width) ? snapshotPlayer.width : player.width;
+  player.height = Number.isFinite(snapshotPlayer.height) ? snapshotPlayer.height : player.height;
+  entry.currentX = player.x;
+  entry.currentY = player.y;
+  entry.currentVy = player.vy;
+  return player;
+}
+
+function syncNetworkCollisionWorld(now, motionTime) {
+  state.platforms = Array.from(state.network.platformEls.values()).map((entry) => {
+    const motion = samplePlatformMotion(entry, motionTime);
+    return {
+      id: entry.id,
+      x: motion.x,
+      y: entry.worldY,
+      width: entry.width || 0,
+      height: entry.height || 18,
+      baseX: entry.baseX,
+      rotation: motion.rotation,
+      motion: entry.motion,
+      el: entry.el,
+    };
+  });
+
+  state.boosts = Array.from(state.network.boostEls.entries()).map(([id, entry]) => ({
+    id,
+    x: entry.worldX,
+    y: entry.worldY,
+    size: entry.size || 60,
+    kind: entry.kind || "rocket",
+    el: entry.el,
+  }));
+
+  state.monsters = Array.from(state.network.monsterEls.values()).map((entry) => {
+    const t = entry.lastUpdateMs ? clamp((now - entry.lastUpdateMs) / NETWORK_TICK_MS, 0, 1) : 1;
+    return {
+      id: entry.id,
+      x: lerp(entry.prevX, entry.worldX, t),
+      y: lerp(entry.prevY, entry.worldY, t),
+      size: entry.size || settings.monsterSize,
+      kind: entry.kind,
+      vx: entry.vx || 0,
+      vy: entry.vy || 0,
+      el: entry.el,
+    };
+  });
+}
+
+function updateLocalNetworkPhysics(dt, now, motionTime) {
+  if (state.isSpectator || state.players.length === 0) return null;
+
+  state.network.localPhysicsRemainderMs += Math.min(Math.max(dt, 0), 50);
+  while (state.network.localPhysicsRemainderMs >= 16.67) {
+    syncNetworkCollisionWorld(now, motionTime);
+    updatePlayers();
+    updateCamera();
+    state.network.localPhysicsRemainderMs -= 16.67;
+  }
+
+  return state.players[0] || null;
+}
+
 function renderNetworkFrame(now) {
   if (!isRoomSession || !state.running) return;
 
   const dt = state.network.lastFrameTime ? now - state.network.lastFrameTime : 16.67;
   state.network.lastFrameTime = now;
-  const predictionStep = dt / 16.67;
   const bufferedState = sampleBufferedNetworkState(now);
   const motionTime = bufferedState
     ? bufferedState.elapsedMs / 1000
     : getBufferedNetworkElapsedMs(now) / 1000;
+  const localPlayer = updateLocalNetworkPhysics(dt, now, motionTime);
 
   state.network.platformEls.forEach((entry) => {
     renderNetworkPlatformEntry(entry, motionTime);
@@ -1293,7 +1419,6 @@ function renderNetworkFrame(now) {
   });
 
   state.network.monsterEls.forEach((entry) => {
-    // 50ms 서버 틱 사이를 prev → current로 선형 보간 (플레이어 보간과 동일한 시각 흐름).
     const t = entry.lastUpdateMs
       ? clamp((now - entry.lastUpdateMs) / NETWORK_TICK_MS, 0, 1)
       : 1;
@@ -1305,38 +1430,16 @@ function renderNetworkFrame(now) {
   let localPlayerEntry = null;
   state.network.playerEls.forEach((entry) => {
     if (entry.isLocalPlayer) {
-      const safeStep = clamp(predictionStep, 0, 3); // 탭 wake 시 거대한 스텝 방지
-      const localAbilities = getAbilities(state.setup[0].characterId);
-      const predictedDirection = getPlayerDirection(0);
-
-      // X: 로컬 예측 + frame-rate independent 보정
-      entry.currentX += predictedDirection * settings.moveSpeed * localAbilities.moveMul * safeStep;
-      entry.currentX += (entry.serverX - entry.currentX) * (1 - Math.pow(0.92, safeStep));
-      entry.currentX = clamp(entry.currentX, 0, settings.worldWidth - (entry.latest?.width || 46));
-
-      if (entry.alive) {
-        // Y: 서버 vy + 중력으로 틱 사이를 extrapolate
-        if (typeof entry.currentVy !== "number") entry.currentVy = entry.serverVy || 0;
-        entry.currentVy += settings.gravity * localAbilities.gravityMul * safeStep;
-        entry.currentY += entry.currentVy * safeStep;
-
-        // 착지/부스트 또는 큰 위치 오차: 강한 스냅 보정
-        const yError = entry.serverY - entry.currentY;
-        const prevVy = entry.prevServerVy || 0;
-        const curVy = entry.serverVy || 0;
-        const bounced = typeof entry.prevServerVy === "number" && (
-          (prevVy > 1.0 && curVy < -1.0) ||  // 낙하→점프
-          (curVy - prevVy < -8)               // 부스트 픽업(rising 중 vy 급감 포함)
-        );
-        const corrBlend = (Math.abs(yError) > 60 || bounced)
-          ? 0.5
-          : (1 - Math.pow(0.94, safeStep));
-        entry.currentY += yError * corrBlend;
-        entry.currentVy += ((entry.serverVy || 0) - entry.currentVy) * corrBlend;
-
+      if (localPlayer && localPlayer.id === entry.id) {
+        entry.currentX = localPlayer.x;
+        entry.currentY = localPlayer.y;
+        entry.currentVy = localPlayer.vy;
+        entry.alive = localPlayer.alive;
+        entry.latest = { ...(entry.latest || {}), ...localPlayer };
+        entry.el.classList.toggle("is-eliminated", !localPlayer.alive);
+        updatePlayerVisualState(localPlayer);
         localPlayerEntry = entry;
       } else {
-        // 탈락: 서버 값으로 스냅 (X 예측/중력 extrapolation 금지)
         entry.currentX = entry.serverX;
         entry.currentY = entry.serverY;
         entry.currentVy = 0;
@@ -1353,12 +1456,7 @@ function renderNetworkFrame(now) {
     entry.el.style.transform = formatWorldTranslate(entry.currentX, entry.currentY - state.cameraY);
   });
 
-  // 카메라: 살아있는 로컬 플레이어 currentY 기준 — 탈락/관전은 서버 버퍼 폴백
-  if (localPlayerEntry) {
-    const cameraOffset = Math.min(state.arenaMetrics.clientHeight * 0.5, 360);
-    const target = Math.min(state.cameraY, localPlayerEntry.currentY - cameraOffset);
-    state.cameraY += (target - state.cameraY) * 0.16;
-  } else if (bufferedState) {
+  if (!localPlayerEntry && bufferedState) {
     state.cameraY = bufferedState.cameraY;
   }
 
@@ -1369,7 +1467,6 @@ function renderNetworkFrame(now) {
   tickPerfMeter(now);
   state.network.renderFrameId = requestAnimationFrame(renderNetworkFrame);
 }
-
 function startNetworkRenderLoop() {
   stopNetworkRenderLoop();
   state.network.lastFrameTime = 0;
@@ -1404,7 +1501,30 @@ function startNetworkPingLoop() {
 
 function sendNetworkInput(direction) {
   if (!state.network.ws || state.network.ws.readyState !== WebSocket.OPEN) return;
-  state.network.ws.send(JSON.stringify({ type: "player_input", direction }));
+  const player = state.players[0] || null;
+  if (!player) {
+    state.network.ws.send(JSON.stringify({ type: "player_input", direction }));
+    return;
+  }
+
+  const pickedBoostIds = Array.from(state.network.pickedBoostIds);
+  state.network.ws.send(JSON.stringify({
+    type: "player_state",
+    direction,
+    x: player.x,
+    y: player.y,
+    vx: player.vx,
+    vy: player.vy,
+    width: player.width,
+    height: player.height,
+    bestHeight: player.bestHeight,
+    alive: player.alive,
+    jumpCount: player.jumpCount || 0,
+    bounceTag: player.bounceTag || 0,
+    lastBounceKind: player.lastBounceKind || null,
+    cameraY: state.cameraY,
+    pickedBoostIds,
+  }));
 }
 
 function syncNetworkInput(force = false) {
@@ -1937,6 +2057,8 @@ function createPlayer(slot) {
     bestHeight: 0,
     alive: true,
     jumpCount: 0,
+    bounceTag: 0,
+    lastBounceKind: null,
     el,
     avatarEl: el.querySelector(".avatar"),
     spriteEl: el.querySelector(".avatar__sprite"),
@@ -2010,6 +2132,8 @@ function handleLanding(player, previousY) {
         abilities.superJumpEvery > 0 &&
         player.jumpCount % abilities.superJumpEvery === 0;
       player.vy = isSuperJump ? settings.boostJump : settings.normalJump * abilities.jumpMul;
+      player.lastBounceKind = isSuperJump ? "super" : "normal";
+      player.bounceTag = ((player.bounceTag || 0) + 1) & 0xff;
       const cx = player.x + player.width / 2;
       spawnEffect("land", cx, platform.y + 6);
       spawnEffect("jump", cx, platform.y);
@@ -2036,6 +2160,8 @@ function handleBoostPickup(player) {
 
     if (picked) {
       player.vy = settings.boostJump * abilities.boostMul;
+      player.lastBounceKind = "boost";
+      player.bounceTag = ((player.bounceTag || 0) + 1) & 0xff;
       const bcx = boost.x + boost.size / 2;
       spawnEffect("boost", bcx, boost.y + boost.size / 2);
       spawnEffect("pickup", bcx, boost.y);
@@ -2043,7 +2169,11 @@ function handleBoostPickup(player) {
       playBoostSound();
       triggerBoostFx(player, "boost");
       setStatus(`${slotLabel(player.slot)} ${BOOST_META[boost.kind].message}!`);
-      boost.el.remove();
+      if (isRoomSession && boost.id) {
+        state.network.pickedBoostIds.add(boost.id);
+        state.network.boostEls.delete(boost.id);
+      }
+      boost.el?.remove();
       return false;
     }
 
@@ -2080,6 +2210,8 @@ function resolveSoloMonsterCollisions(player, previousY) {
           abilities.superJumpEvery > 0 &&
           player.jumpCount % abilities.superJumpEvery === 0;
         player.vy = isSuperJump ? settings.boostJump : settings.normalJump * abilities.jumpMul;
+        player.lastBounceKind = isSuperJump ? "super" : "normal";
+        player.bounceTag = ((player.bounceTag || 0) + 1) & 0xff;
         const cx = player.x + player.width / 2;
         spawnEffect("land", cx, hitTop + 6);
         spawnEffect("jump", cx, hitTop);
