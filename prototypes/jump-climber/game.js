@@ -1387,6 +1387,10 @@ function syncNetworkCollisionWorld(now, motionTime) {
 
 function updateLocalNetworkPhysics(dt, now, motionTime) {
   if (state.isSpectator || state.players.length === 0) return null;
+  if (!state.arenaMetrics.clientHeight) {
+    applyArenaScale(true);
+    if (!state.arenaMetrics.clientHeight) return state.players[0] || null;
+  }
 
   state.network.localPhysicsRemainderMs += Math.min(Math.max(dt, 0), 50);
   while (state.network.localPhysicsRemainderMs >= 16.67) {
@@ -2299,7 +2303,8 @@ function updatePlayers() {
     resolveSoloMonsterCollisions(player, previousY);
     updateBestHeight(player);
 
-    if (player.y > state.cameraY + state.arenaMetrics.clientHeight + 140) {
+    const arenaH = state.arenaMetrics.clientHeight || 600;
+    if (player.y > state.cameraY + arenaH + 140) {
       eliminatePlayer(player);
     }
   });
@@ -2312,7 +2317,8 @@ function updateCamera() {
   const lowestVisiblePlayerY = Math.max(...alivePlayers.map((player) => player.y));
   // viewport 높이의 절반을 따라가되, PC가 너무 길어지지 않도록 360px에서 캡.
   // (이전 0.78은 PC에서 카메라가 너무 위 → 320 고정은 작은 모바일 가로에서 답답 → 균형점)
-  const cameraOffset = Math.min(state.arenaMetrics.clientHeight * 0.5, 360);
+  const arenaH = state.arenaMetrics.clientHeight || 600;
+  const cameraOffset = Math.min(arenaH * 0.5, 360);
   const target = Math.min(state.cameraY, lowestVisiblePlayerY - cameraOffset);
   state.cameraY += (target - state.cameraY) * 0.16;
 }
