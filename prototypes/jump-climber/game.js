@@ -230,9 +230,11 @@ const NETWORK_PING_INTERVAL_MS = 2000;
 const NETWORK_SNAPSHOT_LIMIT = 32;
 const NETWORK_RTT_SAMPLE_LIMIT = 8;
 const NETWORK_DEFAULT_ONE_WAY_MS = NETWORK_TICK_MS * 0.5;
-const NETWORK_MIN_INTERPOLATION_MS = NETWORK_TICK_MS * 2;
+const NETWORK_MIN_INTERPOLATION_MS = NETWORK_TICK_MS * 3;
 const NETWORK_MAX_INTERPOLATION_MS = 200;
-const NETWORK_BASE_INTERPOLATION_MS = NETWORK_TICK_MS * 2;
+const NETWORK_BASE_INTERPOLATION_MS = NETWORK_TICK_MS * 3;
+const NETWORK_REMOTE_FOLLOW_BASE = 0.28;
+const NETWORK_REMOTE_SNAP_DISTANCE = 260;
 
 const state = {
   running: false,
@@ -1282,8 +1284,10 @@ function applyJumpInitFrame(frame) {
   state.network.protocol = frame.protocol || "jump/v1";
   state.network.initialized = true;
   state.network.lastSeq = Number.isFinite(frame.seq) ? frame.seq : 0;
-  // jump_init 시 서버 cameraY로 시드 — 이후 로컬 카메라가 stale 값으로 고착되지 않도록
-  if (Number.isFinite(frame.cameraY)) state.cameraY = frame.cameraY;
+  // Active players keep a local camera; spectators can follow the room camera.
+  if (state.isSpectator && Number.isFinite(frame.cameraY)) {
+    state.cameraY = frame.cameraY;
+  }
   updateNetworkTargets(frame);
 }
 
@@ -1303,6 +1307,13 @@ function applyLegacyJumpState(frame) {
     state.network.initialized = true;
   }
   updateNetworkTargets(frame);
+}
+
+function seedNetworkCameraFromLocalPlayer(player) {
+  if (!player || !Number.isFinite(player.y)) return;
+  const arenaH = state.arenaMetrics.clientHeight || 600;
+  const cameraOffset = Math.min(arenaH * 0.5, 360);
+  state.cameraY = Math.min(state.cameraY, player.y - cameraOffset);
 }
 
 function ensureLocalNetworkPlayer(entry, snapshotPlayer) {
@@ -1332,6 +1343,7 @@ function ensureLocalNetworkPlayer(entry, snapshotPlayer) {
       pose: null,
     };
     state.players = [player];
+    seedNetworkCameraFromLocalPlayer(player);
   }
 
   player.el = entry.el;
@@ -1450,8 +1462,21 @@ function renderNetworkFrame(now) {
       }
     } else if (bufferedState?.playersById.has(entry.id)) {
       const sampledPlayer = bufferedState.playersById.get(entry.id);
-      entry.currentX = sampledPlayer.x;
-      entry.currentY = sampledPlayer.y;
+      const dx = sampledPlayer.x - entry.currentX;
+      const dy = sampledPlayer.y - entry.currentY;
+      const shouldSnap =
+        sampledPlayer.alive === false ||
+        Math.hypot(dx, dy) > NETWORK_REMOTE_SNAP_DISTANCE;
+      if (shouldSnap) {
+        entry.currentX = sampledPlayer.x;
+        entry.currentY = sampledPlayer.y;
+      } else {
+        const step = clamp(dt / 16.67, 0, 3);
+        const follow = 1 - Math.pow(1 - NETWORK_REMOTE_FOLLOW_BASE, step);
+        entry.currentX += dx * follow;
+        entry.currentY += dy * follow;
+      }
+      entry.currentVy = sampledPlayer.vy || 0;
     } else {
       entry.currentX += (entry.serverX - entry.currentX) * 0.12;
       entry.currentY += (entry.serverY - entry.currentY) * 0.12;
@@ -1460,7 +1485,7 @@ function renderNetworkFrame(now) {
     entry.el.style.transform = formatWorldTranslate(entry.currentX, entry.currentY - state.cameraY);
   });
 
-  if (!localPlayerEntry && bufferedState) {
+  if (state.isSpectator && bufferedState) {
     state.cameraY = bufferedState.cameraY;
   }
 
