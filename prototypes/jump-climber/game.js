@@ -1487,6 +1487,18 @@ function renderNetworkFrame(now) {
 
   if (state.isSpectator && bufferedState) {
     state.cameraY = bufferedState.cameraY;
+  } else if (!state.isSpectator && localPlayer && !localPlayer.alive) {
+    let topRemote = null;
+    state.network.playerEls.forEach((entry) => {
+      if (!entry.isLocalPlayer && entry.alive !== false) {
+        if (!topRemote || entry.currentY < topRemote.currentY) topRemote = entry;
+      }
+    });
+    if (topRemote) {
+      const arenaH = state.arenaMetrics.clientHeight || 600;
+      const cameraOffset = Math.min(arenaH * 0.5, 360);
+      state.cameraY += (topRemote.currentY - cameraOffset - state.cameraY) * 0.08;
+    }
   }
 
   state.effects.forEach((effect) => {
