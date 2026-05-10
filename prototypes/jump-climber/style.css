@@ -982,7 +982,7 @@ button {
   }
 
   .screen--setup .setup-title-img img {
-    height: 38px;
+    height: 100px;
   }
 
   .screen--setup .setup-hint {
@@ -1042,12 +1042,16 @@ button {
   }
 
   .screen--setup .character-option {
-    padding: 4px 3px;
+    padding: 5px 3px;
     border-radius: 14px;
   }
 
   .screen--setup .avatar--compact {
-    --avatar-size: 58px;
+    --avatar-size: 74px;
+  }
+
+  .screen--setup .character-option__name {
+    font-size: 0.82rem;
   }
 
   .screen--setup .setup-actions {
@@ -1314,7 +1318,7 @@ button {
   margin-bottom: 10px;
 }
 .setup-title-img img {
-  height: 72px;
+  height: 110px;
   width: auto;
 }
 .play-title__img {
